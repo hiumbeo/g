@@ -742,7 +742,6 @@ client.on('messageCreate', async (message) => {
   try {
     // Kiểm tra bản quyền
     if (command !== 'license' && !authorizedGuilds.has(message.guild!.id)) {
-        await message.reply('❌ Server này chưa được kích hoạt bản quyền! Vui lòng dùng `.license <key>` để kích hoạt.');
         return;
     }
     
