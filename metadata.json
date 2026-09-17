@@ -1,0 +1,6 @@
+{
+  "name": "SentinelBot Dashboard",
+  "description": "Bảng điều khiển cho SentinelBot, hệ thống quản trị bảo mật Discord, lá chắn Anti-Raid, hệ thống Ticket, tra cứu Roblox, tự động nhận diện & tải video TikTok không logo và Rich Presence (RPC).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

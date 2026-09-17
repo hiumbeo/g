@@ -1,0 +1,36 @@
+{
+  "config": {
+    "enabled": true,
+    "lockdownMode": false,
+    "channelCreateLimit": 3,
+    "channelDeleteLimit": 1,
+    "roleCreateLimit": 3,
+    "roleDeleteLimit": 2,
+    "banLimit": 3,
+    "kickLimit": 3,
+    "massJoinLimit": 5,
+    "punishment": "ban",
+    "whitelist": [
+      {
+        "id": "987654321012345678",
+        "name": "TrustworthyAdmin#0001",
+        "addedAt": 1789468442645,
+        "addedBy": "Web Dashboard Admin"
+      }
+    ],
+    "logsChannelId": null
+  },
+  "incidents": [
+    {
+      "id": "inc-init-1",
+      "timestamp": 1789467538459,
+      "guildId": "server-demo",
+      "executorId": "bot-rogue-992",
+      "executorTag": "RogueNuker#1337",
+      "actionType": "channel_delete",
+      "details": "Phát hiện cố tình xóa 3 kênh liên tiếp trong 5 giây",
+      "punishmentTaken": "Banned vĩnh viễn & Khôi phục phân quyền",
+      "severity": "critical"
+    }
+  ]
+}
