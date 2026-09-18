@@ -18,6 +18,7 @@ import { performWebScan, performFileScan, getScanHistory, clearScanHistory } fro
 import { calculateShip, calculateGayRate } from './fun';
 import { backupData } from './backup';
 import { captureServerBackup } from './serverBackup';
+import { setWelcome, setGoodbye, setBoost, getSettings } from './src/welcome';
 import { fetchRobloxUser, buildRobloxDiscordEmbed } from './roblox';
 import {
   buildTicketPanel,
@@ -86,6 +87,46 @@ const client = new Client({
 
 // Kích hoạt toàn diện hệ thống Anti-Raid Engine (Microngamer/anti-raid-1 port)
 setupAntiRaidListeners(client);
+
+// --- Welcome & Goodbye ---
+client.on('guildMemberAdd', async (member) => {
+    const settings = getSettings(member.guild.id);
+    if (!settings || !settings.welcomeChannelId) return;
+    
+    // Check if it's a bot
+    if (member.user.bot) {
+        const channel = member.guild.channels.cache.get(settings.welcomeChannelId) as TextChannel;
+        if (channel) channel.send(`Cảm ơn Bot ${member.user.tag} đã tham gia!`);
+        return;
+    }
+
+    const channel = member.guild.channels.cache.get(settings.welcomeChannelId) as TextChannel;
+    if (channel && settings.welcomeMessage) {
+        channel.send(`${settings.welcomeMessage.replace('{user}', `<@${member.id}>`)} \n ${settings.welcomeGif}`);
+    }
+});
+
+client.on('guildMemberRemove', async (member) => {
+    const settings = getSettings(member.guild.id);
+    if (!settings || !settings.goodbyeChannelId) return;
+    
+    const channel = member.guild.channels.cache.get(settings.goodbyeChannelId) as TextChannel;
+    if (channel && settings.goodbyeMessage) {
+        channel.send(`${settings.goodbyeMessage.replace('{user}', member.user.tag)} \n ${settings.goodbyeGif}`);
+    }
+});
+
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+    if (!oldMember.premiumSince && newMember.premiumSince) {
+        const settings = getSettings(newMember.guild.id);
+        if (!settings || !settings.boostChannelId) return;
+
+        const channel = newMember.guild.channels.cache.get(settings.boostChannelId) as TextChannel;
+        if (channel && settings.boostMessage) {
+            channel.send(`${settings.boostMessage.replace('{user}', `<@${newMember.id}>`)} \n ${settings.boostGif}`);
+        }
+    }
+});
 
 // Cache for !snipe (Store one deleted message per channel)
 const snipes = new Collection<string, { content: string; author: string; timestamp: number }>();
@@ -194,6 +235,24 @@ const registeredSlashCommands = [
     .setName('banner')
     .setDescription('Xem và tải ảnh bìa (Banner Profile) của bạn hoặc người khác')
     .addUserOption((opt) => opt.setName('user').setDescription('Người dùng cần xem banner (Mặc định: chính bạn)').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('setwelcome')
+    .setDescription('Thiết lập welcome')
+    .addChannelOption(option => option.setName('channel').setDescription('Kênh chào mừng').setRequired(true))
+    .addStringOption(option => option.setName('message').setDescription('Nội dung chào mừng').setRequired(true))
+    .addStringOption(option => option.setName('gif').setDescription('Link GIF').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('setgoodbye')
+    .setDescription('Thiết lập goodbye')
+    .addChannelOption(option => option.setName('channel').setDescription('Kênh tạm biệt').setRequired(true))
+    .addStringOption(option => option.setName('message').setDescription('Nội dung tạm biệt').setRequired(true))
+    .addStringOption(option => option.setName('gif').setDescription('Link GIF').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('setboost')
+    .setDescription('Thiết lập thông báo boost server')
+    .addChannelOption(option => option.setName('channel').setDescription('Kênh thông báo boost').setRequired(true))
+    .addStringOption(option => option.setName('message').setDescription('Nội dung thông báo').setRequired(true))
+    .addStringOption(option => option.setName('gif').setDescription('Link GIF').setRequired(true)),
 ];
 
 client.on('ready', async () => {
@@ -263,6 +322,31 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName } = interaction;
+
+  if (commandName === 'setwelcome') {
+      const channel = interaction.options.getChannel('channel', true) as TextChannel;
+      const message = interaction.options.getString('message', true);
+      const gif = interaction.options.getString('gif', true);
+      setWelcome(interaction.guildId!, channel.id, message, gif);
+      await interaction.reply({ content: '✅ Đã thiết lập Welcome!', ephemeral: true });
+      return;
+  }
+  if (commandName === 'setgoodbye') {
+      const channel = interaction.options.getChannel('channel', true) as TextChannel;
+      const message = interaction.options.getString('message', true);
+      const gif = interaction.options.getString('gif', true);
+      setGoodbye(interaction.guildId!, channel.id, message, gif);
+      await interaction.reply({ content: '✅ Đã thiết lập Goodbye!', ephemeral: true });
+      return;
+  }
+  if (commandName === 'setboost') {
+      const channel = interaction.options.getChannel('channel', true) as TextChannel;
+      const message = interaction.options.getString('message', true);
+      const gif = interaction.options.getString('gif', true);
+      setBoost(interaction.guildId!, channel.id, message, gif);
+      await interaction.reply({ content: '✅ Đã thiết lập Boost!', ephemeral: true });
+      return;
+  }
 
   if (commandName === 'roblox') {
     const username = interaction.options.getString('username', true);
