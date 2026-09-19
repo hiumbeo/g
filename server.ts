@@ -19,6 +19,7 @@ import { calculateShip, calculateGayRate } from './fun';
 import { backupData } from './backup';
 import { captureServerBackup } from './serverBackup';
 import { setWelcome, setGoodbye, setBoost, getSettings } from './src/welcome';
+import { setAfk, getAfk, removeAfk } from './src/afk';
 import { fetchRobloxUser, buildRobloxDiscordEmbed } from './roblox';
 import {
   buildTicketPanel,
@@ -253,6 +254,14 @@ const registeredSlashCommands = [
     .addChannelOption(option => option.setName('channel').setDescription('Kênh thông báo boost').setRequired(true))
     .addStringOption(option => option.setName('message').setDescription('Nội dung thông báo').setRequired(true))
     .addStringOption(option => option.setName('gif').setDescription('Link GIF').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('afk')
+    .setDescription('Đặt trạng thái AFK')
+    .addStringOption(option => option.setName('reason').setDescription('Lý do AFK').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('license')
+    .setDescription('khoa')
+    .addStringOption(option => option.setName('key').setDescription('Key bản quyền').setRequired(true)),
 ];
 
 client.on('ready', async () => {
@@ -345,6 +354,22 @@ client.on('interactionCreate', async (interaction) => {
       const gif = interaction.options.getString('gif', true);
       setBoost(interaction.guildId!, channel.id, message, gif);
       await interaction.reply({ content: '✅ Đã thiết lập Boost!', ephemeral: true });
+      return;
+  }
+  if (commandName === 'afk') {
+      const reason = interaction.options.getString('reason', true);
+      setAfk(interaction.user.id, reason);
+      await interaction.reply({ content: `✅ Bạn đã được đặt trạng thái AFK với lý do: ${reason}`, ephemeral: true });
+      return;
+  }
+  if (commandName === 'license') {
+      const key = interaction.options.getString('key', true);
+      if (key === '1234567a') {
+          authorizedGuilds.add(interaction.guildId!);
+          await interaction.reply({ content: '✅ Đã kích hoạt bản quyền cho server này!', ephemeral: true });
+      } else {
+          await interaction.reply({ content: '❌ Key không hợp lệ!', ephemeral: true });
+      }
       return;
   }
 
@@ -744,6 +769,25 @@ client.on('messageDelete', (message) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
+  // --- AFK System ---
+  if (getAfk(message.author.id)) {
+      removeAfk(message.author.id);
+      await message.reply('👋 Chào mừng bạn đã trở lại! Trạng thái AFK đã được xóa.');
+  }
+
+  message.mentions.users.forEach(async (user) => {
+      const afkData = getAfk(user.id);
+      if (afkData && user.id !== message.author.id) {
+          const embed = new EmbedBuilder()
+              .setTitle('💤 Người dùng đang AFK')
+              .setDescription(`**${user.tag}** hiện đang treo máy.\n\n**Lý do:** ${afkData.reason}`)
+              .setColor(0x2f3136)
+              .setFooter({ text: `AFK từ: ${new Date(afkData.timestamp).toLocaleString()}` });
+          
+          await message.reply({ embeds: [embed] });
+      }
+  });
+
   // --- Auto-Delete Users Logic ---
   if (message.guild && autoDeleteMap.has(message.guild.id)) {
     const guildWatchList = autoDeleteMap.get(message.guild.id)!;
@@ -890,16 +934,6 @@ client.on('messageCreate', async (message) => {
         await message.reply('⏳ Đang sao lưu cấu trúc server...');
         const result = await captureServerBackup(message.guild!);
         await message.reply(result);
-        break;
-      }
-
-      case 'license': {
-        if (args[0] === '1234567a') {
-            authorizedGuilds.add(message.guild!.id);
-            await message.reply('✅ Đã kích hoạt bản quyền cho server này!');
-        } else {
-            await message.reply('❌ Key không hợp lệ!');
-        }
         break;
       }
 
