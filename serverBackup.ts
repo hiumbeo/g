@@ -31,18 +31,21 @@ export async function captureServerBackup(guild: Guild): Promise<string> {
         position: r.position,
       })),
     channels: guild.channels.cache
-      .filter(c => c.type !== ChannelType.GuildCategory)
-      .map(c => ({
-        name: c.name,
-        type: c.type,
-        parentId: c.parentId,
-        position: c.position,
-        permissions: c.permissionOverwrites.cache.map(po => ({
+      .filter(c => c && c.type !== ChannelType.GuildCategory && !c.isThread())
+      .map(c => {
+        const gc = c as GuildChannel;
+        return {
+          name: gc.name,
+          type: gc.type,
+          parentId: gc.parentId,
+          position: gc.position,
+          permissions: gc.permissionOverwrites ? gc.permissionOverwrites.cache.map(po => ({
             id: po.id,
             allow: po.allow.bitfield.toString(),
             deny: po.deny.bitfield.toString(),
-        })),
-      })),
+          })) : [],
+        };
+      }),
   };
 
   const filename = `backup-${guild.id}-${Date.now()}.json`;

@@ -11,9 +11,16 @@ import {
   Collection,
   Message,
   SlashCommandBuilder,
-  WebhookClient
+  WebhookClient,
+  TextChannel
 } from 'discord.js';
-import { handleMusicCommand } from './music';
+import { askGeminiChat } from './gemini';
+import {
+  handleMusicCommand,
+  setSoundCloudClientId,
+  getSoundCloudClientId,
+  validateSoundCloudId
+} from './music';
 import { performWebScan, performFileScan, getScanHistory, clearScanHistory } from './scanner';
 import { calculateShip, calculateGayRate } from './fun';
 import { backupData } from './backup';
@@ -262,6 +269,13 @@ const registeredSlashCommands = [
     .setName('license')
     .setDescription('khoa')
     .addStringOption(option => option.setName('key').setDescription('Key bản quyền').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('setscid')
+    .setDescription('Cập nhật SoundCloud Client ID mới để sửa lỗi 401 Unauthorized khi nghe nhạc')
+    .addStringOption(option => option.setName('client_id').setDescription('Client ID lấy từ F12 Network trên soundcloud.com').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('scstatus')
+    .setDescription('Kiểm tra trạng thái kết nối tới SoundCloud API (Kiểm tra lỗi 401)'),
 ];
 
 client.on('ready', async () => {
@@ -371,6 +385,43 @@ client.on('interactionCreate', async (interaction) => {
           await interaction.reply({ content: '❌ Key không hợp lệ!', ephemeral: true });
       }
       return;
+  }
+
+  if (commandName === 'setscid') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild) && !interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Quản lý Server** hoặc **Quản trị viên** để cập nhật Client ID!', ephemeral: true });
+      return;
+    }
+    const newId = interaction.options.getString('client_id', true);
+    await interaction.deferReply({ ephemeral: true });
+    const res = await setSoundCloudClientId(newId);
+    if (res.success) {
+      await interaction.editReply(`✅ **Đã cập nhật SoundCloud Client ID thành công!**\n• Trạng thái API: \`200 OK\` (${res.latencyMs}ms)\n• Giờ bạn có thể dùng lệnh \`.play\` để nghe nhạc bình thường.`);
+    } else {
+      await interaction.editReply(`⚠️ **Client ID đã được lưu nhưng SoundCloud phản hồi HTTP ${res.status || 'Error'}:**\n• Có thể ID này không hợp lệ hoặc đã hết hạn.\n• Bạn có thể lấy lại ID mới từ tab Network (F12) trên trang [SoundCloud](https://soundcloud.com).`);
+    }
+    return;
+  }
+
+  if (commandName === 'scstatus') {
+    await interaction.deferReply();
+    const currentId = getSoundCloudClientId();
+    const res = await validateSoundCloudId(currentId);
+    const maskedId = currentId.length > 8 ? `${currentId.slice(0, 4)}••••••••${currentId.slice(-4)}` : currentId;
+
+    const embed = new EmbedBuilder()
+      .setTitle('📻 Trạng Thái Kết Nối SoundCloud API')
+      .setColor(res.valid ? '#23A559' : '#ED4245')
+      .addFields(
+        { name: '🔑 Client ID Hiện Tại', value: `\`${maskedId}\``, inline: true },
+        { name: '📡 Trạng thái HTTP', value: res.valid ? `\`200 OK\` ✅` : `\`${res.status || '401 Unauthorized'}\` ❌`, inline: true },
+        { name: '⏱️ Độ trễ (Ping)', value: `\`${res.latencyMs}ms\``, inline: true },
+        { name: '💡 Tình trạng', value: res.valid ? 'Hoạt động bình thường. Đã sẵn sàng phát nhạc!' : 'Client ID hiện tại đã hết hạn hoặc bị SoundCloud chặn (401 Unauthorized). Dùng lệnh `/setscid` để cập nhật ID mới.' }
+      )
+      .setFooter({ text: 'Dùng /setscid <id> để cập nhật key mới' });
+
+    await interaction.editReply({ embeds: [embed] });
+    return;
   }
 
   if (commandName === 'roblox') {
@@ -1858,7 +1909,10 @@ client.on('messageCreate', async (message) => {
       case 'queue':
       case 'q':
       case 'nowplaying':
-      case 'np': {
+      case 'np':
+      case 'setscid':
+      case 'scid':
+      case 'scstatus': {
         await handleMusicCommand(command, args, message, client);
         break;
       }

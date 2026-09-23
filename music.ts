@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import {
   joinVoiceChannel,
   createAudioPlayer,
@@ -23,21 +25,102 @@ if (ffmpegPath) {
   process.env.FFMPEG_PATH = ffmpegPath;
 }
 
-// Ensure SoundCloud Client ID is initialized
-let scClientId = 'Pb72ranhoyt6gw7hM7TkzUItXlMWSNSo';
-async function initSoundCloud() {
+const MUSIC_CONFIG_FILE = path.join(process.cwd(), 'music_config.json');
+
+interface MusicConfig {
+  soundcloudClientId?: string;
+}
+
+function loadMusicConfig(): MusicConfig {
   try {
-    const freeId = await play.getFreeClientID();
-    if (freeId) {
-      scClientId = freeId;
+    if (fs.existsSync(MUSIC_CONFIG_FILE)) {
+      const raw = fs.readFileSync(MUSIC_CONFIG_FILE, 'utf-8');
+      return JSON.parse(raw);
     }
-  } catch {
-    // Fallback ID is already active
+  } catch (e) {
+    console.error('Error loading music config:', e);
   }
+  return {};
+}
+
+function saveMusicConfig(cfg: MusicConfig) {
   try {
-    await play.setToken({ soundcloud: { client_id: scClientId } });
+    fs.writeFileSync(MUSIC_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving music config:', e);
+  }
+}
+
+/**
+ * Gets the current active SoundCloud Client ID
+ */
+export function getSoundCloudClientId(): string {
+  const cfg = loadMusicConfig();
+  if (cfg.soundcloudClientId && cfg.soundcloudClientId.trim()) {
+    return cfg.soundcloudClientId.trim();
+  }
+  if (process.env.SOUNDCLOUD_CLIENT_ID && process.env.SOUNDCLOUD_CLIENT_ID.trim()) {
+    return process.env.SOUNDCLOUD_CLIENT_ID.trim();
+  }
+  return 'Pb72ranhoyt6gw7hM7TkzUItXlMWSNSo';
+}
+
+/**
+ * Validates a SoundCloud Client ID by querying the api-v2 endpoint
+ */
+export async function validateSoundCloudId(id: string): Promise<{ valid: boolean; status: number; latencyMs: number }> {
+  const startTime = Date.now();
+  try {
+    const res = await fetch(`https://api-v2.soundcloud.com/search?client_id=${encodeURIComponent(id.trim())}&q=test&limit=1`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      }
+    });
+    const latencyMs = Date.now() - startTime;
+    return {
+      valid: res.status === 200,
+      status: res.status,
+      latencyMs,
+    };
+  } catch (err: any) {
+    return {
+      valid: false,
+      status: 0,
+      latencyMs: Date.now() - startTime,
+    };
+  }
+}
+
+/**
+ * Sets and persists a new SoundCloud Client ID
+ */
+export async function setSoundCloudClientId(newId: string): Promise<{ success: boolean; status: number; latencyMs: number }> {
+  const cleanId = newId.trim();
+  const testRes = await validateSoundCloudId(cleanId);
+  const cfg = loadMusicConfig();
+  cfg.soundcloudClientId = cleanId;
+  saveMusicConfig(cfg);
+
+  try {
+    await play.setToken({ soundcloud: { client_id: cleanId } });
+  } catch {}
+
+  return {
+    success: testRes.valid,
+    status: testRes.status,
+    latencyMs: testRes.latencyMs,
+  };
+}
+
+/**
+ * Initializes SoundCloud token for play-dl
+ */
+export async function initSoundCloud() {
+  const activeId = getSoundCloudClientId();
+  try {
+    await play.setToken({ soundcloud: { client_id: activeId } });
   } catch {
-    // Token setting safe catch
+    // Safe token set
   }
 }
 initSoundCloud();
@@ -163,10 +246,16 @@ export async function playNextSong(guildId: string, client: any) {
   }
 }
 
+export interface SearchSongResult {
+  song: Song | null;
+  error?: 'SC_401' | 'NOT_FOUND' | 'UNKNOWN';
+  rawError?: string;
+}
+
 /**
  * Resolves a song query into a playable track via SoundCloud
  */
-async function searchSong(rawQuery: string): Promise<Song | null> {
+async function searchSong(rawQuery: string): Promise<SearchSongResult> {
   await initSoundCloud();
 
   let searchTerm = rawQuery.trim();
@@ -229,53 +318,33 @@ async function searchSong(rawQuery: string): Promise<Song | null> {
       const best = scored[0].track;
 
       return {
-        title: best.name || searchTerm,
-        url: best.url,
-        duration: formatDuration(best.durationInSec || 0),
-        thumbnail: best.thumbnail,
-        requestedBy: '',
-        scTrack: best,
+        song: {
+          title: best.name || searchTerm,
+          url: best.url,
+          duration: formatDuration(best.durationInSec || 0),
+          thumbnail: best.thumbnail,
+          requestedBy: '',
+          scTrack: best,
+        },
       };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('SoundCloud search error:', err);
-  }
-
-  // 2. Fallback: If SoundCloud query didn't find anything, search YouTube to get official title, then search SoundCloud
-  try {
-    const ytResults = await play.search(searchTerm, {
-      source: { youtube: 'video' },
-      limit: 1,
-    });
-
-    if (ytResults && ytResults.length > 0 && ytResults[0].title) {
-      const resolvedTitle = ytResults[0].title;
-      const secondAttempt = await play.search(resolvedTitle, {
-        source: { soundcloud: 'tracks' },
-        limit: 5,
-      });
-
-      if (secondAttempt && secondAttempt.length > 0) {
-        const track = secondAttempt[0];
-        return {
-          title: track.name || resolvedTitle,
-          url: track.url,
-          duration: formatDuration(track.durationInSec || 0),
-          thumbnail: track.thumbnail,
-          requestedBy: '',
-          scTrack: track,
-        };
-      }
+    const errMsg = err?.message || String(err);
+    if (errMsg.includes('401') || errMsg.includes('Unauthorized')) {
+      return {
+        song: null,
+        error: 'SC_401',
+        rawError: errMsg,
+      };
     }
-  } catch (err) {
-    console.error('YouTube title resolve fallback error:', err);
   }
 
-  return null;
+  return { song: null, error: 'NOT_FOUND' };
 }
 
 /**
- * Handles all music-related commands (.play, .skip, .stop, .leave, etc.)
+ * Handles all music-related commands (.play, .skip, .stop, .leave, .setscid, .scstatus, etc.)
  */
 export async function handleMusicCommand(
   command: string,
@@ -288,6 +357,48 @@ export async function handleMusicCommand(
   const memberVoiceChannel = message.member?.voice.channel;
 
   switch (command) {
+    case 'setscid':
+    case 'scid': {
+      if (!message.member?.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        await message.reply('❌ Bạn cần quyền **Quản lý Server** hoặc **Quản trị viên** để cập nhật Client ID!');
+        return;
+      }
+      const newId = args[0]?.trim();
+      if (!newId) {
+        await message.reply('❌ Vui lòng nhập Client ID mới. Cú pháp: `.setscid <client_id>`');
+        return;
+      }
+      const checkingMsg = await message.reply('🔄 Đang kiểm tra Client ID với SoundCloud API...');
+      const res = await setSoundCloudClientId(newId);
+      if (res.success) {
+        await checkingMsg.edit(`✅ **Đã cập nhật SoundCloud Client ID thành công!**\n• Trạng thái API: \`200 OK\` (${res.latencyMs}ms)\n• Giờ bạn có thể dùng lệnh \`.play <tên bài>\` bình thường.`);
+      } else {
+        await checkingMsg.edit(`⚠️ **Client ID đã được lưu nhưng SoundCloud phản hồi HTTP ${res.status || 'Error'}:**\n• Có thể ID này không hợp lệ hoặc đã hết hạn.\n• Bạn có thể lấy lại ID mới từ tab Network (F12) trên trang [SoundCloud](https://soundcloud.com).`);
+      }
+      break;
+    }
+
+    case 'scstatus': {
+      const currentId = getSoundCloudClientId();
+      const checkingMsg = await message.reply('🔄 Đang kiểm tra kết nối tới SoundCloud API...');
+      const res = await validateSoundCloudId(currentId);
+      const maskedId = currentId.length > 8 ? `${currentId.slice(0, 4)}••••••••${currentId.slice(-4)}` : currentId;
+
+      const embed = new EmbedBuilder()
+        .setTitle('📻 Trạng Thái Kết Nối SoundCloud API')
+        .setColor(res.valid ? '#23A559' : '#ED4245')
+        .addFields(
+          { name: '🔑 Client ID Hiện Tại', value: `\`${maskedId}\``, inline: true },
+          { name: '📡 Trạng thái HTTP', value: res.valid ? `\`200 OK\` ✅` : `\`${res.status || '401 Unauthorized'}\` ❌`, inline: true },
+          { name: '⏱️ Độ trễ (Ping)', value: `\`${res.latencyMs}ms\``, inline: true },
+          { name: '💡 Tình trạng', value: res.valid ? 'Hoạt động bình thường. Có thể tìm kiếm và phát nhạc.' : 'Client ID đã hết hạn hoặc bị SoundCloud chặn (401 Unauthorized). Vui lòng dùng lệnh `/setscid` hoặc `.setscid` để đổi ID mới.' }
+        )
+        .setFooter({ text: 'Dùng /setscid hoặc .setscid <id> để thay đổi' });
+
+      await checkingMsg.edit({ content: '', embeds: [embed] });
+      break;
+    }
+
     case 'play': {
       if (!memberVoiceChannel) {
         await message.reply('❌ Bạn cần phải tham gia vào một kênh thoại (Voice Channel) trước!');
@@ -309,13 +420,37 @@ export async function handleMusicCommand(
       const searchingMsg = await message.reply(`🔍 Đang tìm kiếm bài hát: \`${query}\`...`);
 
       try {
-        const songInfo = await searchSong(query);
+        const searchResult = await searchSong(query);
 
-        if (!songInfo) {
+        if (searchResult.error === 'SC_401') {
+          const scEmbed = new EmbedBuilder()
+            .setTitle('⚠️ Lỗi SoundCloud API: 401 Unauthorized')
+            .setColor('#ED4245')
+            .setDescription(
+              `SoundCloud gần đây đã cập nhật hệ thống API khiến các \`client_id\` cũ bị vô hiệu hóa (lỗi 401 Unauthorized khi tìm kiếm \`scsearch\`).\n\n` +
+              `### 🛠️ Cách khắc phục nhanh (Chỉ 30 giây):\n` +
+              `1️⃣ Mở trình duyệt máy tính, vào [SoundCloud](https://soundcloud.com)\n` +
+              `2️⃣ Bấm phím **F12** (DevTools) ➔ chuyển sang tab **Network** (Mạng)\n` +
+              `3️⃣ Nhấn phát bất kỳ 1 bài hát nào trên SoundCloud\n` +
+              `4️⃣ Trong ô Filter của tab Network, gõ \`client_id\` và sao chép chuỗi 32 ký tự\n` +
+              `5️⃣ Dùng lệnh sau để kích hoạt lại Bot ngay lập tức:\n` +
+              `   • Slash: \`/setscid <client_id_vua_copy>\`\n` +
+              `   • Hoặc Prefix: \`.setscid <client_id_vua_copy>\`\n` +
+              `   • Kiểm tra lại: \`/scstatus\` hoặc \`.scstatus\`\n\n` +
+              `_Bot sẽ tự động ghi nhớ ID này vào cấu hình hệ thống._`
+            )
+            .setFooter({ text: 'SentinelBot Music System • SoundCloud API 401 Fix' });
+
+          await searchingMsg.edit({ content: '', embeds: [scEmbed] });
+          return;
+        }
+
+        if (!searchResult.song) {
           await searchingMsg.edit(`❌ Không tìm thấy bài hát nào cho từ khóa: \`${query}\`. Hãy thử từ khóa khác!`);
           return;
         }
 
+        const songInfo = searchResult.song;
         songInfo.requestedBy = message.author.tag;
 
         let queue = musicQueues.get(message.guild.id);
