@@ -29,6 +29,7 @@ const MUSIC_CONFIG_FILE = path.join(process.cwd(), 'music_config.json');
 
 interface MusicConfig {
   soundcloudClientId?: string;
+  fruitStock?: string;
 }
 
 function loadMusicConfig(): MusicConfig {
@@ -124,6 +125,32 @@ export async function initSoundCloud() {
   }
 }
 initSoundCloud();
+
+/**
+ * Fetches current Blox Fruits stock from Parse.bot
+ */
+async function fetchBloxFruitsStock(): Promise<string> {
+  const apiKey = process.env.PARSE_BOT_API_KEY; // Assumes this is set in the environment
+  if (!apiKey) {
+    return 'Chưa cấu hình API Key cho Parse.bot.';
+  }
+
+  try {
+    // Note: Assuming endpoint structure based on common Parse.bot usage
+    const res = await fetch(`https://api.parse.bot/v1/blox-fruits/stock?key=${apiKey}`);
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    const data: any = await res.json();
+    
+    // Process response data into a human-readable string
+    if (data.stock && data.stock.length > 0) {
+      return data.stock.map((item: any) => `${item.name} (${item.price_beli} Beli)`).join(', ');
+    }
+    return 'Không có thông tin stock.';
+  } catch (err: any) {
+    console.error('Error fetching stock:', err);
+    return 'Lỗi khi lấy dữ liệu từ API.';
+  }
+}
 
 export interface Song {
   title: string;
@@ -527,6 +554,7 @@ export async function handleMusicCommand(
         } else {
           // If queue exists, ensure connection and channel are in sync
           queue.connection = existingConnection;
+          queue.connection.subscribe(queue.player);
           queue.voiceChannelId = memberVoiceChannel.id;
           queue.textChannelId = message.channel.id;
         }
@@ -691,6 +719,31 @@ export async function handleMusicCommand(
       }
 
       await message.reply({ embeds: [embed] });
+      break;
+    }
+
+    case 'setstock': {
+      if (!message.member?.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        await message.reply('❌ Bạn cần quyền **Quản lý Server** hoặc **Quản trị viên** để cập nhật Stock!');
+        return;
+      }
+      const stockData = args.join(' ');
+      if (!stockData) {
+        await message.reply('❌ Vui lòng nhập thông tin stock. Cú pháp: `.setstock <tên_trái> - <giá>`');
+        return;
+      }
+      const cfg = loadMusicConfig();
+      cfg.fruitStock = stockData;
+      saveMusicConfig(cfg);
+      await message.reply(`✅ Đã cập nhật Stock Fruit thành: \`${stockData}\``);
+      break;
+    }
+
+    case 'stock':
+    case 'bllx':
+    case 'fruit': {
+      const stock = await fetchBloxFruitsStock();
+      await message.reply(`🍎 **Blox Fruits Stock hiện tại:**\n${stock}`);
       break;
     }
 
