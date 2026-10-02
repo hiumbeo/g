@@ -757,37 +757,38 @@ export async function handleMusicCommand(
   client: any
 ) {
   if (!message.guild) return;
-  const memberVoiceChannel = message.member?.voice.channel;
+  const member = message.member || (message.guild ? await message.guild.members.fetch(message.author.id).catch(() => null) : null);
+  const memberVoiceChannel = member?.voice?.channel || message.guild.voiceStates.cache.get(message.author.id)?.channel;
 
   switch (command) {
     case 'setscid':
     case 'scid': {
       if (
         message.author.id !== '1542028462154317907' &&
-        !message.member?.permissions.has(PermissionsBitField.Flags.ManageGuild) &&
-        !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)
+        !member?.permissions.has(PermissionsBitField.Flags.ManageGuild) &&
+        !member?.permissions.has(PermissionsBitField.Flags.Administrator)
       ) {
-        await message.reply('❌ Bạn cần quyền **Quản lý Server** hoặc **Quản trị viên** để cập nhật Client ID!');
+        await message.reply('❌ Bạn cần quyền **Quản lý Server** hoặc **Quản trị viên** để cập nhật Client ID!').catch(() => {});
         return;
       }
       const newId = args[0]?.trim();
       if (!newId) {
-        await message.reply('❌ Vui lòng nhập Client ID mới. Cú pháp: `.setscid <client_id>`');
+        await message.reply('❌ Vui lòng nhập Client ID mới. Cú pháp: `?setscid <client_id>`').catch(() => {});
         return;
       }
-      const checkingMsg = await message.reply('🔄 Đang kiểm tra Client ID với SoundCloud API...');
+      const checkingMsg = await message.reply('🔄 Đang kiểm tra Client ID với SoundCloud API...').catch(() => null);
       const res = await setSoundCloudClientId(newId);
       if (res.success) {
-        await checkingMsg.edit(`✅ **Đã cập nhật SoundCloud Client ID thành công!**\n• Trạng thái API: \`200 OK\` (${res.latencyMs}ms)\n• Giờ bạn có thể dùng lệnh \`.play\` để nghe nhạc bình thường.`);
+        if (checkingMsg) await checkingMsg.edit(`✅ **Đã cập nhật SoundCloud Client ID thành công!**\n• Trạng thái API: \`200 OK\` (${res.latencyMs}ms)\n• Giờ bạn có thể dùng lệnh \`?play\` để nghe nhạc bình thường.`).catch(() => {});
       } else {
-        await checkingMsg.edit(`⚠️ **Client ID đã được lưu nhưng SoundCloud phản hồi HTTP ${res.status || 'Error'}:**\n• ID này có thể đã hết hạn.`);
+        if (checkingMsg) await checkingMsg.edit(`⚠️ **Client ID đã được lưu nhưng SoundCloud phản hồi HTTP ${res.status || 'Error'}:**\n• ID này có thể đã hết hạn.`).catch(() => {});
       }
       break;
     }
 
     case 'scstatus': {
       const currentId = getSoundCloudClientId();
-      const checkingMsg = await message.reply('🔄 Đang kiểm tra kết nối tới SoundCloud API...');
+      const checkingMsg = await message.reply('🔄 Đang kiểm tra kết nối tới SoundCloud API...').catch(() => null);
       const res = await validateSoundCloudId(currentId);
       const maskedId = currentId.length > 8 ? `${currentId.slice(0, 4)}••••••••${currentId.slice(-4)}` : currentId;
 
@@ -798,28 +799,33 @@ export async function handleMusicCommand(
           { name: '🔑 Client ID Hiện Tại', value: `\`${maskedId}\``, inline: true },
           { name: '📡 Trạng thái HTTP', value: res.valid ? `\`200 OK\` ✅` : `\`${res.status || '401 Unauthorized'}\` ❌`, inline: true },
           { name: '⏱️ Độ trễ (Ping)', value: `\`${res.latencyMs}ms\``, inline: true },
-          { name: '💡 Tình trạng', value: res.valid ? 'Hoạt động bình thường. Đã sẵn sàng phát nhạc!' : 'Client ID hết hạn hoặc bị chặn. Bot sẽ tự động làm mới hoặc bạn dùng `.setscid`.' }
+          { name: '💡 Tình trạng', value: res.valid ? 'Hoạt động bình thường. Đã sẵn sàng phát nhạc!' : 'Client ID hết hạn hoặc bị chặn. Bot sẽ tự động làm mới hoặc bạn dùng `?setscid`.' }
         )
-        .setFooter({ text: 'Dùng /setscid hoặc .setscid <id> để thay đổi' });
+        .setFooter({ text: 'Dùng /setscid hoặc ?setscid <id> để thay đổi' });
 
-      await checkingMsg.edit({ content: '', embeds: [embed] });
+      if (checkingMsg) {
+        await checkingMsg.edit({ content: '', embeds: [embed] }).catch(() => {});
+      } else {
+        await message.reply({ embeds: [embed] }).catch(() => {});
+      }
       break;
     }
 
     case 'play':
     case 'p': {
       if (!memberVoiceChannel) {
-        await message.reply('❌ Bạn cần phải tham gia vào một kênh thoại (Voice Channel) trước!');
+        await message.reply('❌ Bạn cần phải tham gia vào một kênh thoại (Voice Channel) trước khi nghe nhạc!').catch(() => {});
         return;
       }
 
       const query = args.join(' ').trim();
       if (!query) {
-        await message.reply('❌ Vui lòng nhập tên bài hát hoặc link YouTube / Spotify / SoundCloud. Ví dụ: `.play novocaine`');
+        await message.reply('❌ Vui lòng nhập tên bài hát hoặc link YouTube / Spotify / SoundCloud. Ví dụ: `?play tình yêu màu nắng`').catch(() => {});
         return;
       }
 
-      const searchingMsg = await message.reply(`🔍 Đang xử lý bài hát: \`${query}\`...`);
+      console.log(`[Music] Executing prefix play command: "${query}" by ${message.author.tag} in ${message.guild.name}`);
+      const searchingMsg = await message.reply(`🔍 Đang xử lý bài hát: \`${query}\`...`).catch(() => null);
       const res = await executePlay(
         message.guild,
         memberVoiceChannel,
@@ -830,7 +836,11 @@ export async function handleMusicCommand(
       );
 
       if (!res.success) {
-        await searchingMsg.edit(`❌ ${res.message}`);
+        if (searchingMsg) {
+          await searchingMsg.edit(`❌ ${res.message}`).catch(() => {});
+        } else {
+          await message.reply(`❌ ${res.message}`).catch(() => {});
+        }
         return;
       }
 
@@ -859,7 +869,11 @@ export async function handleMusicCommand(
           embed.setThumbnail(res.song.thumbnail);
         }
 
-        await searchingMsg.edit({ content: '', embeds: [embed] });
+        if (searchingMsg) {
+          await searchingMsg.edit({ content: '', embeds: [embed] }).catch(() => {});
+        } else {
+          await (message.channel as any).send({ embeds: [embed] }).catch(() => {});
+        }
       }
       break;
     }

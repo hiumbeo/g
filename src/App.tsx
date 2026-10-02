@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Shield, Server, Activity, Bot, Zap, Play, Settings, Sparkles, MessageSquare, ShieldAlert, Gamepad2, Blocks, Ticket, LayoutTemplate, Video, Swords } from 'lucide-react';
+import { Shield, Server, Activity, Bot, Zap, Play, Settings, Sparkles, MessageSquare, ShieldAlert, Gamepad2, Blocks, Ticket, LayoutTemplate, Video, Swords, HelpCircle, Terminal } from 'lucide-react';
 import AntiRaidDashboard from './components/AntiRaidDashboard';
 import RpcManager from './components/RpcManager';
 import RobloxChecker from './components/RobloxChecker';
@@ -237,7 +237,52 @@ export default function App() {
           </div>
         ) : null}
 
-        {/* Discord Bot Rich Presence (RPC) Manager */}
+        {/* Prefix vs Slash Command Troubleshooting Guide */}
+        <div className="bg-[#1E1F22] border border-[#5865F2]/30 rounded-xl p-5 mb-8 overflow-hidden">
+          <div className="flex items-start space-x-3.5">
+            <div className="p-2.5 bg-[#5865F2]/10 rounded-lg text-[#5865F2] flex-shrink-0 mt-0.5">
+              <Terminal className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <h3 className="text-white font-bold text-base flex items-center gap-2">
+                  <span>Khắc phục nhanh: Dùng lệnh Slash <code className="text-[#5865F2] bg-[#5865F2]/10 px-1.5 py-0.5 rounded text-xs font-mono">/play</code> thì được mà gõ <code className="text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded text-xs font-mono">?play</code> bot không nhận?</span>
+                </h3>
+              </div>
+              <p className="text-sm text-[#949BA4] mt-1.5 leading-relaxed">
+                Discord mặc định chặn không cho bot đọc nội dung tin nhắn chat nếu chưa cấp quyền đặc biệt. Khi đó, lệnh Slash (<code className="text-white font-mono text-xs">/play</code>, <code className="text-white font-mono text-xs">/help</code>) vẫn hoạt động 100%, nhưng lệnh có dấu <code className="text-white font-mono text-xs">?</code> sẽ bị Discord gửi về bot dạng chuỗi trống!
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-[#111214] p-3.5 rounded-lg border border-[#2B2D31]">
+                  <h4 className="text-white font-semibold text-xs flex items-center gap-1.5 text-emerald-400 mb-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                    Cách 1: Bật MESSAGE CONTENT INTENT (Khuyên Dùng)
+                  </h4>
+                  <ol className="text-xs text-[#949BA4] space-y-1 list-decimal list-inside leading-relaxed">
+                    <li>Vào <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer" className="text-[#5865F2] underline hover:text-indigo-400">discord.com/developers/applications</a></li>
+                    <li>Chọn Bot của bạn &rarr; Bấm mục <strong>Bot</strong> ở cột bên trái.</li>
+                    <li>Kéo xuống mục <strong>Privileged Gateway Intents</strong>.</li>
+                    <li>Gạt BẬT công tắc: <strong className="text-white">MESSAGE CONTENT INTENT</strong> (xanh lá).</li>
+                    <li>Bấm <strong className="text-white">Save Changes</strong> &rarr; Xong! Bot sẽ nhận ngay lệnh <code className="text-emerald-400 font-mono">?play</code>.</li>
+                  </ol>
+                </div>
+
+                <div className="bg-[#111214] p-3.5 rounded-lg border border-[#2B2D31]">
+                  <h4 className="text-white font-semibold text-xs flex items-center gap-1.5 text-indigo-400 mb-2">
+                    <span className="w-2 h-2 rounded-full bg-indigo-400 inline-block"></span>
+                    Cách 2: Tag Bot hoặc Dùng Slash Command Thay Thế
+                  </h4>
+                  <ul className="text-xs text-[#949BA4] space-y-1.5 leading-relaxed">
+                    <li>• <strong>Tag trực tiếp Bot:</strong> <code className="bg-[#1E1F22] text-amber-300 px-1 py-0.5 rounded font-mono">@TênBot play tình yêu màu nắng</code> (Discord luôn gửi tin nhắn khi tag bot).</li>
+                    <li>• <strong>Dùng Slash Command:</strong> Gõ <code className="bg-[#1E1F22] text-[#5865F2] px-1 py-0.5 rounded font-mono">/play query: tình yêu màu nắng</code> (Có sẵn gợi ý bài hát mượt mà).</li>
+                    <li>• <strong>Tiền tố hỗ trợ:</strong> Bot hỗ trợ cả <code className="text-white font-mono">?</code>, <code className="text-white font-mono">.</code>, <code className="text-white font-mono">!</code> và prefix tùy chỉnh server.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <RpcManager botName={status.botName} botOnline={status.online} />
 
         {/* Music Dashboard */}

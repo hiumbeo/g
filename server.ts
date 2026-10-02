@@ -578,7 +578,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   // Kiểm tra quyền truy cập Bot đối với các lệnh khác
-  const access = checkBotAccess(interaction.user.id);
+  const access = checkBotAccess(interaction.user.id, interaction.guild, interaction.member as any);
   if (!access.allowed) {
     await interaction.reply({
       content: '⛔ **Truy cập bị từ chối:** Bot đang ở chế độ Riêng tư (Private Whitelist). Chỉ Chủ Bot và những người trong danh sách Whitelist mới được phép sử dụng bot!\n👉 Dùng lệnh `/whitelist list` để xem hoặc liên hệ Chủ Bot để được cấp quyền.',
@@ -1183,17 +1183,19 @@ client.on('messageCreate', async (message) => {
 
   // --- Command & Mention Handling ---
   const prefix = message.guild ? (guildPrefixes.get(message.guild.id) || '?') : '?';
+  const rawContent = message.content || '';
+  const trimmed = rawContent.trim();
 
   // Chẩn đoán: ghi log tin nhắn nhận được
-  if (message.content) {
-    console.log(`[messageCreate] ${message.author.tag} in ${message.guild?.name || 'DM'}: "${message.content}"`);
+  if (rawContent) {
+    console.log(`[messageCreate] ${message.author.tag} in ${message.guild?.name || 'DM'}: "${rawContent}"`);
   } else if (!message.attachments.size) {
     console.warn(`[messageCreate WARNING] Tin nhắn từ ${message.author.tag} bị trống nội dung! Hãy kiểm tra "MESSAGE CONTENT INTENT" trong Discord Developer Portal.`);
   }
 
   // --- Tự động nhận diện link TikTok (Auto-detect TikTok Links) ---
-  if (!message.content.startsWith(prefix) && !message.content.startsWith('?') && isTikTokAutoEmbedEnabled(message.guild?.id)) {
-    const tiktokUrl = extractFirstTikTokUrl(message.content);
+  if (!trimmed.startsWith(prefix) && !trimmed.startsWith('?') && !trimmed.startsWith('.') && !trimmed.startsWith('!') && isTikTokAutoEmbedEnabled(message.guild?.id)) {
+    const tiktokUrl = extractFirstTikTokUrl(trimmed);
     if (tiktokUrl) {
       try {
         await processTikTokLink(message, tiktokUrl, { isAutoDetect: true });
@@ -1207,7 +1209,7 @@ client.on('messageCreate', async (message) => {
   // Khi người dùng chỉ tag bot một mình: phản hồi thông tin Prefix & hướng dẫn ngay lập tức
   if (
     client.user &&
-    (message.content.trim() === `<@${client.user.id}>` || message.content.trim() === `<@!${client.user.id}>`)
+    (trimmed === `<@${client.user.id}>` || trimmed === `<@!${client.user.id}>`)
   ) {
     await message.reply(
       `👋 Xin chào **${message.author.username}**!\n` +
@@ -1219,21 +1221,25 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // Xác định prefix phù hợp (cho phép dùng prefix dấu ?, prefix server HOẶC tag bot)
+  // Xác định prefix phù hợp (cho phép dùng prefix dấu ?, prefix server, dấu chấm ., dấu chấm than ! HOẶC tag bot)
   let matchedPrefix: string | null = null;
-  if (message.content.startsWith(prefix)) {
+  if (trimmed.startsWith(prefix)) {
     matchedPrefix = prefix;
-  } else if (message.content.startsWith('?')) {
+  } else if (trimmed.startsWith('?')) {
     matchedPrefix = '?';
-  } else if (client.user && message.content.startsWith(`<@${client.user.id}>`)) {
+  } else if (trimmed.startsWith('.')) {
+    matchedPrefix = '.';
+  } else if (trimmed.startsWith('!')) {
+    matchedPrefix = '!';
+  } else if (client.user && trimmed.startsWith(`<@${client.user.id}>`)) {
     matchedPrefix = `<@${client.user.id}>`;
-  } else if (client.user && message.content.startsWith(`<@!${client.user.id}>`)) {
+  } else if (client.user && trimmed.startsWith(`<@!${client.user.id}>`)) {
     matchedPrefix = `<@!${client.user.id}>`;
   }
 
   if (!matchedPrefix) return;
 
-  const rawArgs = message.content.slice(matchedPrefix.length).trim();
+  const rawArgs = trimmed.slice(matchedPrefix.length).trim();
   const args = rawArgs.split(/ +/).filter(Boolean);
   const command = args.shift()?.toLowerCase();
 
@@ -1246,13 +1252,13 @@ client.on('messageCreate', async (message) => {
   }
 
   // 2. Kiểm tra quyền sử dụng Bot (Chỉ Chủ Bot hoặc người trong Whitelist)
-  const access = checkBotAccess(message.author.id);
+  const access = checkBotAccess(message.author.id, message.guild, message.member);
   if (!access.allowed) {
     await message.reply(
       `⛔ **Truy cập bị từ chối:** Bot đang ở chế độ Riêng tư (Private Whitelist).\n` +
       `Chỉ **Chủ Bot** và những người trong danh sách Whitelist mới có quyền sử dụng!\n` +
       `👉 Dùng lệnh \`${prefix}wl list\` để xem danh sách hoặc liên hệ Chủ Bot để được cấp quyền.`
-    );
+    ).catch(() => {});
     return;
   }
 

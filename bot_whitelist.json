@@ -1,5 +1,7 @@
 {
   "enabled": true,
-  "ownerIds": [],
+  "ownerIds": [
+    "1542028462154317907"
+  ],
   "whitelist": []
 }

