@@ -38,6 +38,16 @@ import {
   getBotBestMove
 } from './caro';
 import { buildHelpPanel, handleHelpInteraction } from './helpPanel';
+import {
+  checkBotAccess,
+  handleWhitelistPrefixCommand,
+  syncBotOwnerFromClient,
+  isOwner,
+  getWhitelistConfig,
+  setWhitelistEnabled,
+  addToWhitelist,
+  removeFromWhitelist
+} from './whitelist';
 import { backupData } from './backup';
 import { captureServerBackup } from './serverBackup';
 import { setWelcome, setGoodbye, setBoost, getSettings } from './src/welcome';
@@ -392,12 +402,39 @@ const registeredSlashCommands = [
         .setName('resign')
         .setDescription('Đầu hàng ván cờ Caro hiện tại')
     ),
+  new SlashCommandBuilder()
+    .setName('whitelist')
+    .setDescription('Quản lý danh sách Whitelist & quyền sử dụng bot (Chỉ Chủ Bot)')
+    .addSubcommand(sub =>
+      sub
+        .setName('list')
+        .setDescription('Xem danh sách người dùng được phép sử dụng bot')
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName('add')
+        .setDescription('Cấp quyền dùng bot cho một người dùng')
+        .addUserOption(opt => opt.setName('user').setDescription('Người dùng cần thêm vào Whitelist').setRequired(true))
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName('remove')
+        .setDescription('Thu hồi quyền dùng bot của một người dùng')
+        .addUserOption(opt => opt.setName('user').setDescription('Người dùng cần xóa khỏi Whitelist').setRequired(true))
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName('toggle')
+        .setDescription('Bật hoặc tắt chế độ giới hạn Whitelist')
+        .addBooleanOption(opt => opt.setName('enabled').setDescription('True = Bật (Chỉ Owner & Whitelist), False = Tắt (Tất cả)').setRequired(true))
+    ),
 ];
 
 client.on('ready', async () => {
   isBotRunning = true;
   loginError = '';
   console.log(`Bot logged in as ${client.user?.tag}!`);
+  await syncBotOwnerFromClient(client);
   applyRpcToBot(client);
   startRpcRotation(client);
 
@@ -432,7 +469,7 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isStringSelectMenu()) {
     try {
       if (interaction.customId.startsWith('help_cat_select_')) {
-        const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '.') : '.';
+        const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '?') : '?';
         const handled = await handleHelpInteraction(interaction, p);
         if (handled) return;
       }
@@ -446,7 +483,7 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     try {
       if (interaction.customId.startsWith('help_btn_')) {
-        const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '.') : '.';
+        const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '?') : '?';
         const handled = await handleHelpInteraction(interaction, p);
         if (handled) return;
       }
@@ -485,6 +522,71 @@ client.on('interactionCreate', async (interaction) => {
 
   const { commandName } = interaction;
 
+  // Lệnh quản lý Whitelist
+  if (commandName === 'whitelist') {
+    const sub = interaction.options.getSubcommand();
+    const isUserOwner = isOwner(interaction.user.id);
+
+    if (sub === 'list') {
+      const cfg = getWhitelistConfig();
+      const embed = new EmbedBuilder()
+        .setTitle('📋 DANH SÁCH WHITELIST SỬ DỤNG BOT')
+        .setColor('#5865f2')
+        .setDescription(
+          `🛡️ **Chế độ bảo vệ:** ${cfg.enabled ? '🟢 **ĐANG BẬT (Chỉ Owner & Whitelist được dùng)**' : '🔴 **ĐANG TẮT (Tất cả mọi người)**'}\n\n` +
+          `👑 **Chủ sở hữu Bot (${cfg.ownerIds.length}):**\n` +
+          (cfg.ownerIds.length > 0 ? cfg.ownerIds.map(id => `• <@${id}> (\`${id}\`)`).join('\n') : '*Chưa ghi nhận ID chủ bot*') +
+          `\n\n📜 **Thành viên Whitelist (${cfg.whitelist.length}):**\n` +
+          (cfg.whitelist.length > 0
+            ? cfg.whitelist.map((w, i) => `${i + 1}. <@${w.id}> (\`${w.tag}\`)\n   └ Thêm bởi: **${w.addedBy}** • <t:${Math.floor(w.addedAt / 1000)}:R>`).join('\n\n')
+            : '*Chưa có ai trong Whitelist.*')
+        )
+        .setTimestamp();
+      await interaction.reply({ embeds: [embed] });
+      return;
+    }
+
+    if (!isUserOwner) {
+      await interaction.reply({ content: '⛔ **Chỉ Chủ Sở Hữu Bot (Bot Owner)** mới có quyền chỉnh sửa Whitelist!', ephemeral: true });
+      return;
+    }
+
+    if (sub === 'add') {
+      const targetUser = interaction.options.getUser('user', true);
+      addToWhitelist({ id: targetUser.id, tag: targetUser.tag }, interaction.user.tag);
+      await interaction.reply(`✅ Đã thêm <@${targetUser.id}> (\`${targetUser.tag}\`) vào danh sách **Whitelist** thành công!`);
+      return;
+    }
+
+    if (sub === 'remove') {
+      const targetUser = interaction.options.getUser('user', true);
+      const ok = removeFromWhitelist(targetUser.id);
+      if (ok) {
+        await interaction.reply(`🗑️ Đã xóa <@${targetUser.id}> khỏi danh sách **Whitelist**!`);
+      } else {
+        await interaction.reply({ content: `⚠️ Người dùng <@${targetUser.id}> không có trong Whitelist.`, ephemeral: true });
+      }
+      return;
+    }
+
+    if (sub === 'toggle') {
+      const enabled = interaction.options.getBoolean('enabled', true);
+      setWhitelistEnabled(enabled);
+      await interaction.reply(`⚙️ Đã ${enabled ? '🔒 **BẬT**' : '🔓 **TẮT**'} chế độ giới hạn Whitelist!`);
+      return;
+    }
+  }
+
+  // Kiểm tra quyền truy cập Bot đối với các lệnh khác
+  const access = checkBotAccess(interaction.user.id);
+  if (!access.allowed) {
+    await interaction.reply({
+      content: '⛔ **Truy cập bị từ chối:** Bot đang ở chế độ Riêng tư (Private Whitelist). Chỉ Chủ Bot và những người trong danh sách Whitelist mới được phép sử dụng bot!\n👉 Dùng lệnh `/whitelist list` để xem hoặc liên hệ Chủ Bot để được cấp quyền.',
+      ephemeral: true,
+    });
+    return;
+  }
+
   // Xử lý các Slash Command nghe nhạc (play, skip, pause, resume, stop, queue, volume, loop, shuffle, nowplaying)
   const isMusicHandled = await handleMusicSlashCommand(interaction, client);
   if (isMusicHandled) return;
@@ -499,11 +601,11 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (commandName === 'prefix') {
-    const currentPrefix = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '.') : '.';
+    const currentPrefix = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '?') : '?';
     const newPrefix = interaction.options.getString('new_prefix');
     if (!newPrefix) {
       await interaction.reply({
-        content: `📍 Prefix hiện tại của server này là: \`${currentPrefix}\`\n👉 Bạn có thể dùng lệnh \`.help\` hoặc các lệnh Slash \`/\` bình thường!\n💡 Để đổi prefix: \`/prefix new_prefix: <ký tự>\``,
+        content: `📍 Prefix hiện tại của server này là: \`${currentPrefix}\`\n👉 Bạn có thể dùng lệnh \`${currentPrefix}help\` hoặc các lệnh Slash \`/\` bình thường!\n💡 Để đổi prefix: \`/prefix new_prefix: <ký tự>\``,
         ephemeral: true,
       });
       return;
@@ -522,7 +624,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (commandName === 'help') {
-    const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '.') : '.';
+    const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '?') : '?';
     const { embed, components } = buildHelpPanel(p, 'home', interaction.user.id);
     await interaction.reply({ embeds: [embed], components });
     return;
@@ -1080,10 +1182,17 @@ client.on('messageCreate', async (message) => {
   }
 
   // --- Command & Mention Handling ---
-  const prefix = message.guild ? (guildPrefixes.get(message.guild.id) || '.') : '.';
+  const prefix = message.guild ? (guildPrefixes.get(message.guild.id) || '?') : '?';
+
+  // Chẩn đoán: ghi log tin nhắn nhận được
+  if (message.content) {
+    console.log(`[messageCreate] ${message.author.tag} in ${message.guild?.name || 'DM'}: "${message.content}"`);
+  } else if (!message.attachments.size) {
+    console.warn(`[messageCreate WARNING] Tin nhắn từ ${message.author.tag} bị trống nội dung! Hãy kiểm tra "MESSAGE CONTENT INTENT" trong Discord Developer Portal.`);
+  }
 
   // --- Tự động nhận diện link TikTok (Auto-detect TikTok Links) ---
-  if (!message.content.startsWith(prefix) && isTikTokAutoEmbedEnabled(message.guild?.id)) {
+  if (!message.content.startsWith(prefix) && !message.content.startsWith('?') && isTikTokAutoEmbedEnabled(message.guild?.id)) {
     const tiktokUrl = extractFirstTikTokUrl(message.content);
     if (tiktokUrl) {
       try {
@@ -1105,15 +1214,17 @@ client.on('messageCreate', async (message) => {
       `• Ký tự tiền tố (Prefix) hiện tại của server là: \`${prefix}\`\n` +
       `• Gõ \`${prefix}help\` hoặc dùng lệnh Slash: \`/help\` để xem danh sách toàn bộ lệnh.\n` +
       `• Bạn cũng có thể tag trực tiếp bot để gọi lệnh: \`@${client.user.username} help\` hoặc \`@${client.user.username} play <bài hát>\`!\n\n` +
-      `💡 *Mẹo: Nếu bot online nhưng không phản hồi lệnh dấu chấm \`${prefix}\`, hãy kiểm tra xem bạn đã BẬT **MESSAGE CONTENT INTENT** trong Discord Developer Portal chưa nhé!*`
+      `💡 *Mẹo: Nếu bot online nhưng không phản hồi lệnh dấu hỏi \`${prefix}\`, hãy kiểm tra xem bạn đã BẬT **MESSAGE CONTENT INTENT** trong Discord Developer Portal (Tab Bot -> Privileged Gateway Intents) chưa nhé!*`
     ).catch(() => {});
     return;
   }
 
-  // Xác định prefix phù hợp (cho phép dùng prefix dấu chấm HOẶC tag bot)
+  // Xác định prefix phù hợp (cho phép dùng prefix dấu ?, prefix server HOẶC tag bot)
   let matchedPrefix: string | null = null;
   if (message.content.startsWith(prefix)) {
     matchedPrefix = prefix;
+  } else if (message.content.startsWith('?')) {
+    matchedPrefix = '?';
   } else if (client.user && message.content.startsWith(`<@${client.user.id}>`)) {
     matchedPrefix = `<@${client.user.id}>`;
   } else if (client.user && message.content.startsWith(`<@!${client.user.id}>`)) {
@@ -1127,6 +1238,23 @@ client.on('messageCreate', async (message) => {
   const command = args.shift()?.toLowerCase();
 
   if (!command) return;
+
+  // 1. Lệnh quản lý quyền truy cập Whitelist
+  if (command === 'wl' || command === 'whitelist') {
+    await handleWhitelistPrefixCommand(message, args, prefix);
+    return;
+  }
+
+  // 2. Kiểm tra quyền sử dụng Bot (Chỉ Chủ Bot hoặc người trong Whitelist)
+  const access = checkBotAccess(message.author.id);
+  if (!access.allowed) {
+    await message.reply(
+      `⛔ **Truy cập bị từ chối:** Bot đang ở chế độ Riêng tư (Private Whitelist).\n` +
+      `Chỉ **Chủ Bot** và những người trong danh sách Whitelist mới có quyền sử dụng!\n` +
+      `👉 Dùng lệnh \`${prefix}wl list\` để xem danh sách hoặc liên hệ Chủ Bot để được cấp quyền.`
+    );
+    return;
+  }
 
   try {
     switch (command) {

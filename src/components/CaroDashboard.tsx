@@ -363,8 +363,8 @@ export default function CaroDashboard() {
                 <Award className="w-8 h-8 mx-auto text-gray-500 mb-2 opacity-50" />
                 Chưa có kỳ thủ nào ghi danh trên bảng xếp hạng!
                 <div className="mt-1 text-[11px] text-gray-500">
-                  Hãy vào Discord gõ <code className="text-blue-400">.caro bot</code> hoặc{' '}
-                  <code className="text-blue-400">.caro @user</code> để mở màn!
+                  Hãy vào Discord gõ <code className="text-blue-400">?caro bot</code> hoặc{' '}
+                  <code className="text-blue-400">?caro @user</code> để mở màn!
                 </div>
               </div>
             ) : (
@@ -430,11 +430,11 @@ export default function CaroDashboard() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               {[
-                { cmd: '.caro bot', desc: 'Solo ngay với Bot AI thông minh' },
-                { cmd: '.caro @user', desc: 'Thách đấu bạn bè trong server' },
-                { cmd: '.caro stats', desc: 'Xem điểm ELO, Rank & hồ sơ' },
-                { cmd: '.caro top', desc: 'Xem BXH Top 10 cao thủ' },
-                { cmd: '.caro resign', desc: 'Xin đầu hàng ván cờ hiện tại' },
+                { cmd: '?caro bot', desc: 'Solo ngay với Bot AI thông minh' },
+                { cmd: '?caro @user', desc: 'Thách đấu bạn bè trong server' },
+                { cmd: '?caro stats', desc: 'Xem điểm ELO, Rank & hồ sơ' },
+                { cmd: '?caro top', desc: 'Xem BXH Top 10 cao thủ' },
+                { cmd: '?caro resign', desc: 'Xin đầu hàng ván cờ hiện tại' },
                 { cmd: '/caro bot', desc: 'Slash command đấu cờ với Bot' },
               ].map(item => (
                 <div

@@ -48,6 +48,7 @@ export interface CaroGame {
   status: 'pending' | 'playing' | 'ended';
   winner?: 'X' | 'O' | 'draw';
   winningCoords?: Array<{ r: number; c: number }>;
+  lastMoveDesc?: string;
   messageId?: string;
   createdAt: number;
   lastMoveAt: number;
@@ -346,6 +347,9 @@ export function getBotBestMove(
 }
 
 // --- Tạo Giao Diện Discord Component Cho Bàn Cờ ---
+const ROW_CHARS = ['A', 'B', 'C', 'D', 'E'];
+const ROW_EMOJIS = ['🇦', '🇧', '🇨', '🇩', '🇪'];
+
 export function renderCaroComponents(game: CaroGame): ActionRowBuilder<ButtonBuilder>[] {
   const rows: ActionRowBuilder<ButtonBuilder>[] = [];
   const size = game.boardSize;
@@ -368,8 +372,8 @@ export function renderCaroComponents(game: CaroGame): ActionRowBuilder<ButtonBui
           .setStyle(isWinningCell ? ButtonStyle.Primary : ButtonStyle.Success)
           .setDisabled(true);
       } else {
-        // Ô trống
-        btn.setLabel('▫️')
+        // Ô trống: hiển thị tọa độ rõ ràng như A1, B3, D5 giúp người chơi định vị chính xác
+        btn.setLabel(`${ROW_CHARS[r]}${c + 1}`)
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(game.status !== 'playing');
       }
@@ -383,8 +387,31 @@ export function renderCaroComponents(game: CaroGame): ActionRowBuilder<ButtonBui
   return rows;
 }
 
+export function buildAsciiBoardText(game: CaroGame): string {
+  let s = '⬛ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣\n';
+  for (let r = 0; r < 5; r++) {
+    s += `${ROW_EMOJIS[r]} `;
+    for (let c = 0; c < 5; c++) {
+      const piece = game.board[r][c];
+      const isWinning = game.winningCoords?.some(coord => coord.r === r && coord.c === c);
+      if (isWinning) {
+        s += '👑 ';
+      } else if (piece === 'X') {
+        s += '❌ ';
+      } else if (piece === 'O') {
+        s += '⭕ ';
+      } else {
+        s += '▫️ ';
+      }
+    }
+    s += '\n';
+  }
+  return s;
+}
+
 export function renderCaroEmbed(game: CaroGame): EmbedBuilder {
   const embed = new EmbedBuilder();
+  const boardView = buildAsciiBoardText(game);
 
   if (game.status === 'playing') {
     const isXTurn = game.currentTurn === 'X';
@@ -396,21 +423,25 @@ export function renderCaroEmbed(game: CaroGame): EmbedBuilder {
       .setColor('#3a86ff')
       .setDescription(
         `🥊 **Trận đấu:** ❌ **${game.playerX.username}** VS ⭕ **${game.playerO.username}**${diffText}\n` +
-        `🎯 **Luật chơi:** Đạt **4 quân cờ liên tiếp** (ngang, dọc, chéo) trước để chiến thắng!\n\n` +
+        `🎯 **Luật chơi:** Đạt **4 quân cờ liên tiếp** (ngang, dọc, chéo) để chiến thắng!\n\n` +
+        `**BÀN CỜ HIỆN TẠI:**\n${boardView}\n` +
+        (game.lastMoveDesc ? `⚡ **Diễn biến mới nhất:**\n${game.lastMoveDesc}\n\n` : '') +
         `👉 **Đang đến lượt:** ${currentPiece} **${currentName}**\n` +
-        `⏳ Nước đi thứ: \`#${game.movesCount + 1}\` (Bấm vào nút cờ bên dưới để đánh)`
+        `⏳ Nước đi thứ: \`#${game.movesCount + 1}\` (Bấm nút tọa độ tương ứng A1-E5 bên dưới)\n` +
+        `🏳️ *Nếu muốn dừng ván cờ, hãy gõ lệnh \`?caro resign\`.*`
       )
-      .setFooter({ text: 'SentinelBot Caro Engine • Bấm nút để đánh cờ • Hết giờ sau 60s' })
+      .setFooter({ text: 'SentinelBot Caro Engine • Bấm nút tọa độ để hạ quân • Hết giờ sau 60s' })
       .setTimestamp();
   } else if (game.status === 'ended') {
     if (game.winner === 'draw') {
       embed.setTitle('🤝 TRẬN CỜ CARO KẾT THÚC: BẤT PHÂN THẮNG BẠI!')
         .setColor('#adb5bd')
         .setDescription(
+          `**KẾT QUẢ BÀN CỜ:**\n${boardView}\n` +
           `Cả hai kỳ thủ **${game.playerX.username}** và **${game.playerO.username}** đều thủ thế vững vàng!\n` +
           `Bàn cờ đã kín chỗ sau **${game.movesCount}** nước đi kịch tính.`
         )
-        .setFooter({ text: 'Dùng !caro @user hoặc !caro bot để phục thù!' });
+        .setFooter({ text: 'Dùng ?caro @user hoặc ?caro bot để phục thù!' });
     } else {
       const winnerName = game.winner === 'X' ? game.playerX.username : game.playerO.username;
       const winnerPiece = game.winner === 'X' ? '❌' : '⭕';
@@ -419,11 +450,12 @@ export function renderCaroEmbed(game: CaroGame): EmbedBuilder {
       embed.setTitle(`🏆 CHIẾN THẮNG TUYỆT ĐỐI THUỘC VỀ: ${winnerName.toUpperCase()}!`)
         .setColor(game.winner === 'X' ? '#ef233c' : '#2ec4b6')
         .setDescription(
-          `🎉 Kỳ thủ ${winnerPiece} **${winnerName}** đã xuất sắc tung ra nước cờ quyết định kết liễu trận đấu trước **${loserName}**!\n` +
+          `**BÀN CỜ CHIẾN THẮNG (👑 = Dòng kết liễu):**\n${boardView}\n` +
+          `🎉 Kỳ thủ ${winnerPiece} **${winnerName}** đã tung ra nước cờ quyết định kết liễu trận đấu trước **${loserName}**!\n` +
           `📊 Số nước đi: **${game.movesCount}** nước.\n` +
-          `⭐ Điểm xếp hạng đã được cập nhật vào Bảng Vàng Cờ Caro!`
+          `⭐ Điểm xếp hạng ELO đã được cập nhật vào Bảng Vàng Cờ Caro!`
         )
-        .setFooter({ text: 'Dùng !caro stats để xem hồ sơ kỳ thủ' })
+        .setFooter({ text: 'Dùng ?caro stats để xem hồ sơ kỳ thủ' })
         .setTimestamp();
     }
   }
@@ -572,6 +604,8 @@ export async function handleCaroButtonClick(interaction: ButtonInteraction, clie
     game.board[r][c] = piece;
     game.movesCount += 1;
     game.lastMoveAt = Date.now();
+    const userCoord = `${ROW_CHARS[r]}${c + 1}`;
+    game.lastMoveDesc = `• **${user.username}** vừa hạ quân: Ô **[${userCoord}]** (${piece})`;
 
     // Kiểm tra thắng
     const winResult = checkWinCondition(game.board, game.winCondition);
@@ -579,6 +613,7 @@ export async function handleCaroButtonClick(interaction: ButtonInteraction, clie
       game.status = 'ended';
       game.winner = winResult.winner;
       game.winningCoords = winResult.coords;
+      game.lastMoveDesc = `🏆 **${user.username}** đã hạ quân quyết định tại ô **[${userCoord}]** (${piece}) và giành chiến thắng!`;
 
       // Cập nhật điểm ELO và thống kê
       updateStatsMatchResult(
@@ -605,6 +640,7 @@ export async function handleCaroButtonClick(interaction: ButtonInteraction, clie
     if (isBoardFull(game.board)) {
       game.status = 'ended';
       game.winner = 'draw';
+      game.lastMoveDesc = `🤝 Ô cờ cuối cùng **[${userCoord}]** đã được lấp đầy. Bàn cờ hòa!`;
 
       updateStatsMatchResult(
         game.playerX.id,
@@ -634,6 +670,8 @@ export async function handleCaroButtonClick(interaction: ButtonInteraction, clie
       game.board[botMove.r][botMove.c] = 'O';
       game.movesCount += 1;
       game.lastMoveAt = Date.now();
+      const botCoord = `${ROW_CHARS[botMove.r]}${botMove.c + 1}`;
+      game.lastMoveDesc = `• Bạn vừa đánh: Ô **[${userCoord}]** (❌)\n• 🤖 Bot đáp trả tại: Ô **[${botCoord}]** (⭕)`;
 
       // Kiểm tra Bot có thắng không
       const botWinResult = checkWinCondition(game.board, game.winCondition);
@@ -641,6 +679,7 @@ export async function handleCaroButtonClick(interaction: ButtonInteraction, clie
         game.status = 'ended';
         game.winner = botWinResult.winner;
         game.winningCoords = botWinResult.coords;
+        game.lastMoveDesc = `🤖 Bot đã tung nước cờ quyết định tại **[${botCoord}]** (⭕) và giành chiến thắng!`;
 
         updateStatsMatchResult(
           game.playerX.id,
@@ -665,6 +704,7 @@ export async function handleCaroButtonClick(interaction: ButtonInteraction, clie
       if (isBoardFull(game.board)) {
         game.status = 'ended';
         game.winner = 'draw';
+        game.lastMoveDesc = `🤝 Nước cờ cuối cùng tại **[${botCoord}]** đã lấp kín bàn cờ. Hòa!`;
 
         updateStatsMatchResult(
           game.playerX.id,

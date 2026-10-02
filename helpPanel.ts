@@ -254,6 +254,30 @@ export function buildHelpPanel(prefix: string, category: string = 'home', reques
         .setTimestamp();
       break;
 
+    case 'whitelist':
+      embed
+        .setTitle('🔐 PHÂN QUYỀN WHITELIST & QUẢN LÝ CHỦ BOT')
+        .setColor('#5865f2')
+        .setDescription(
+          `Cơ chế bảo vệ đặc quyền: Khi bật chế độ Whitelist, chỉ **Chủ Bot (Owner)** và những thành viên được cấp phép mới có thể sử dụng bot.\n`
+        )
+        .addFields(
+          {
+            name: '📋 Quản Lý Danh Sách Whitelist',
+            value:
+              `• \`${prefix}wl list\` (hoặc \`${prefix}wl ds\`): Xem danh sách toàn bộ thành viên đang được phép dùng bot.\n` +
+              `• \`${prefix}wl add @user\`: Cấp quyền sử dụng bot cho thành viên (Chỉ Chủ Bot).\n` +
+              `• \`${prefix}wl remove @user\` (hoặc \`${prefix}wl del\`): Thu hồi quyền dùng bot.\n` +
+              `• \`${prefix}wl on\`: Bật khóa bảo vệ (Chỉ Chủ Bot & Whitelist được dùng).\n` +
+              `• \`${prefix}wl off\`: Tắt khóa bảo vệ (Tất cả mọi người đều được dùng).\n` +
+              `• \`${prefix}wl addowner @user\`: Thêm Chủ Bot mới.\n` +
+              `• \`${prefix}wl claim\`: Nhận quyền Chủ Bot (nếu chưa có ai nhận).`
+          }
+        )
+        .setFooter({ text: footerText })
+        .setTimestamp();
+      break;
+
     case 'home':
     default:
       embed
@@ -265,20 +289,23 @@ export function buildHelpPanel(prefix: string, category: string = 'home', reques
           `💡 **Cách dùng:** Hãy **chọn danh mục trong Menu thả xuống** hoặc **nhấn các nút bên dưới** để xem chi tiết từng module!`
         )
         .addFields(
-          { name: '🚨 BẢO MẬT & ANTI-RAID', value: `\`${prefix}antiraid\`, \`${prefix}lockdown\`, \`${prefix}clean\`, \`${prefix}whitelist\``, inline: true },
-          { name: '🎵 ÂM NHẠC ĐA NỀN TẢNG', value: `\`${prefix}play\`, \`${prefix}skip\`, \`${prefix}stop\`, \`${prefix}queue\`, \`${prefix}loop\``, inline: true },
+          { name: '🚨 BẢO MẬT & ANTI-RAID', value: `\`${prefix}antiraid\`, \`${prefix}lockdown\`, \`${prefix}clean\``, inline: true },
+          { name: '🔐 BẢO VỆ & WHITELIST', value: `\`${prefix}wl list\`, \`${prefix}wl add\`, \`${prefix}wl on/off\``, inline: true },
+          { name: '🎵 ÂM NHẠC ĐA NỀN TẢNG', value: `\`${prefix}play\`, \`${prefix}skip\`, \`${prefix}queue\`, \`${prefix}loop\``, inline: true },
           { name: '🎮 ĐẤU CỜ CARO (5x5)', value: `\`${prefix}caro bot\`, \`${prefix}caro @user\`, \`${prefix}caro stats\`, \`${prefix}caro top\``, inline: true },
           { name: '🤖 CHAT AI CỌC TÍNH', value: `\`${prefix}chat\`, \`${prefix}ai\`, hoặc tag trực tiếp \`@SentinelBot\``, inline: true },
           { name: '📱 TẢI TIKTOK (NO LOGO)', value: `\`${prefix}tiktok <link>\`, \`${prefix}tiktok auto on/off\``, inline: true },
           { name: '🧱 TRA CỨU ROBLOX', value: `\`${prefix}roblox <user/ID>\`, \`/roblox\``, inline: true },
           { name: '🎉 GIẢI TRÍ & GAYRATE', value: `\`${prefix}ghepdoi @crush\`, \`${prefix}gay [@user]\``, inline: true },
-          { name: '🎮 RICH PRESENCE (RPC)', value: `\`${prefix}rpc playing/watching/streaming/status\``, inline: true },
           { name: '⚙️ CẤU HÌNH SERVER', value: `\`${prefix}prefix <ký tự>\`, \`/setwelcome\`, \`/setgoodbye\``, inline: true }
         )
         .setFooter({ text: footerText })
         .setTimestamp();
       break;
   }
+
+  // Gắn banner GIF động theo yêu cầu của user: https://tenor.com/qYXTTRbn3CM.gif
+  embed.setImage('https://media1.tenor.com/m/w-flhIvMF9IAAAAC/sad-anime-rain-raining.gif');
 
   // Row 1: StringSelectMenu lựa chọn chuyên mục
   const selectMenu = new StringSelectMenuBuilder()
@@ -297,6 +324,12 @@ export function buildHelpPanel(prefix: string, category: string = 'home', reques
         .setDescription('Phòng chống Nuke, Anti-Spam, Whitelist, Lockdown & Clean')
         .setEmoji('🚨')
         .setDefault(category === 'security'),
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Phân Quyền & Whitelist Bot')
+        .setValue('whitelist')
+        .setDescription('Chỉ chủ bot & người trong whitelist mới được dùng bot')
+        .setEmoji('🔐')
+        .setDefault(category === 'whitelist'),
       new StringSelectMenuOptionBuilder()
         .setLabel('Âm Nhạc Đa Nền Tảng')
         .setValue('music')
