@@ -17,9 +17,14 @@ import {
 import { askGeminiChat } from './gemini';
 import {
   handleMusicCommand,
+  handleMusicSlashCommand,
   setSoundCloudClientId,
   getSoundCloudClientId,
-  validateSoundCloudId
+  validateSoundCloudId,
+  getMusicDashboardState,
+  executeDashboardControl,
+  playFromDashboard,
+  refreshSoundCloudIdAuto,
 } from './music';
 import { performWebScan, performFileScan, getScanHistory, clearScanHistory } from './scanner';
 import { calculateShip, calculateGayRate } from './fun';
@@ -155,8 +160,8 @@ const activeWebhooks = new Map<string, string>();
 // Auto-delete users (guildId -> Set<userId>)
 const autoDeleteMap = new Map<string, Set<string>>();
 
-// Authorized guilds (Set<guildId>)
-const authorizedGuilds = new Set<string>();
+// Bot Owner ID (Đặc quyền tối cao)
+export const BOT_OWNER_ID = '1542028462154317907';
 
 // Slash Commands Registry
 const registeredSlashCommands = [
@@ -266,16 +271,55 @@ const registeredSlashCommands = [
     .setDescription('Đặt trạng thái AFK')
     .addStringOption(option => option.setName('reason').setDescription('Lý do AFK').setRequired(true)),
   new SlashCommandBuilder()
-    .setName('license')
-    .setDescription('khoa')
-    .addStringOption(option => option.setName('key').setDescription('Key bản quyền').setRequired(true)),
-  new SlashCommandBuilder()
     .setName('setscid')
     .setDescription('Cập nhật SoundCloud Client ID mới để sửa lỗi 401 Unauthorized khi nghe nhạc')
     .addStringOption(option => option.setName('client_id').setDescription('Client ID lấy từ F12 Network trên soundcloud.com').setRequired(true)),
   new SlashCommandBuilder()
     .setName('scstatus')
     .setDescription('Kiểm tra trạng thái kết nối tới SoundCloud API (Kiểm tra lỗi 401)'),
+  new SlashCommandBuilder()
+    .setName('play')
+    .setDescription('Phát nhạc từ YouTube, Spotify, SoundCloud hoặc liên kết âm thanh trực tiếp')
+    .addStringOption(option => option.setName('query').setDescription('Tên bài hát hoặc link YouTube / Spotify / SoundCloud').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('skip')
+    .setDescription('Bỏ qua bài hát hiện tại và phát bài tiếp theo trong hàng đợi'),
+  new SlashCommandBuilder()
+    .setName('pause')
+    .setDescription('Tạm dừng phát nhạc'),
+  new SlashCommandBuilder()
+    .setName('resume')
+    .setDescription('Tiếp tục phát nhạc đang tạm dừng'),
+  new SlashCommandBuilder()
+    .setName('stop')
+    .setDescription('Dừng nhạc, xóa hàng đợi và rời khỏi kênh thoại'),
+  new SlashCommandBuilder()
+    .setName('queue')
+    .setDescription('Xem danh sách các bài hát trong hàng đợi'),
+  new SlashCommandBuilder()
+    .setName('nowplaying')
+    .setDescription('Xem thông tin bài hát đang phát'),
+  new SlashCommandBuilder()
+    .setName('volume')
+    .setDescription('Điều chỉnh âm lượng phát nhạc (1-150%)')
+    .addIntegerOption(option => option.setName('percent').setDescription('Phần trăm âm lượng (1-150)').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('loop')
+    .setDescription('Cài đặt chế độ lặp lại bài hát hoặc hàng đợi')
+    .addStringOption(option =>
+      option
+        .setName('mode')
+        .setDescription('Chế độ lặp')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Tắt lặp (Off)', value: 'off' },
+          { name: 'Lặp 1 bài (Track)', value: 'track' },
+          { name: 'Lặp hàng đợi (Queue)', value: 'queue' }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName('shuffle')
+    .setDescription('Xáo trộn ngẫu nhiên danh sách phát tiếp theo trong hàng đợi'),
 ];
 
 client.on('ready', async () => {
@@ -346,6 +390,10 @@ client.on('interactionCreate', async (interaction) => {
 
   const { commandName } = interaction;
 
+  // Xử lý các Slash Command nghe nhạc (play, skip, pause, resume, stop, queue, volume, loop, shuffle, nowplaying)
+  const isMusicHandled = await handleMusicSlashCommand(interaction, client);
+  if (isMusicHandled) return;
+
   if (commandName === 'setwelcome') {
       const channel = interaction.options.getChannel('channel', true) as TextChannel;
       const message = interaction.options.getString('message', true);
@@ -374,16 +422,6 @@ client.on('interactionCreate', async (interaction) => {
       const reason = interaction.options.getString('reason', true);
       setAfk(interaction.user.id, reason);
       await interaction.reply({ content: `✅ Bạn đã được đặt trạng thái AFK với lý do: ${reason}`, ephemeral: true });
-      return;
-  }
-  if (commandName === 'license') {
-      const key = interaction.options.getString('key', true);
-      if (key === '1234567a') {
-          authorizedGuilds.add(interaction.guildId!);
-          await interaction.reply({ content: '✅ Đã kích hoạt bản quyền cho server này!', ephemeral: true });
-      } else {
-          await interaction.reply({ content: '❌ Key không hợp lệ!', ephemeral: true });
-      }
       return;
   }
 
@@ -466,6 +504,10 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.editReply('❌ Không thể dùng Bot để tự ban Bot!');
       return;
     }
+    if (user.id === BOT_OWNER_ID) {
+      await interaction.editReply('❌ Không thể ban **Chủ Bot**!');
+      return;
+    }
     if (user.id === interaction.guild?.ownerId) {
       await interaction.editReply('❌ Không thể ban **Chủ Server (Server Owner)**!');
       return;
@@ -525,6 +567,10 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.editReply('❌ Bạn không thể tự kick chính mình!');
       return;
     }
+    if (user.id === BOT_OWNER_ID) {
+      await interaction.editReply('❌ Không thể kick **Chủ Bot**!');
+      return;
+    }
     if (user.id === interaction.guild?.ownerId) {
       await interaction.editReply('❌ Không thể kick **Chủ Server (Server Owner)**!');
       return;
@@ -578,6 +624,10 @@ client.on('interactionCreate', async (interaction) => {
 
     if (user.id === interaction.user.id) {
       await interaction.editReply('❌ Bạn không thể tự timeout chính mình!');
+      return;
+    }
+    if (user.id === BOT_OWNER_ID) {
+      await interaction.editReply('❌ Không thể timeout **Chủ Bot**!');
       return;
     }
     if (user.id === interaction.guild?.ownerId) {
@@ -919,11 +969,6 @@ client.on('messageCreate', async (message) => {
   if (!command) return;
 
   try {
-    // Kiểm tra bản quyền
-    if (command !== 'license' && !authorizedGuilds.has(message.guild!.id)) {
-        return;
-    }
-    
     switch (command) {
       case 'help': {
         const embed = new EmbedBuilder()
@@ -1087,7 +1132,7 @@ client.on('messageCreate', async (message) => {
       case 'purge':
       case 'clear':
       case 'clean': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
           await message.reply('❌ Bạn không có quyền quản lý tin nhắn (Manage Messages)!');
           return;
         }
@@ -1189,7 +1234,7 @@ client.on('messageCreate', async (message) => {
       }
 
       case 'lock': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.ManageChannels)) return;
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.ManageChannels)) return;
         if (message.channel.isTextBased() && !message.channel.isDMBased()) {
           // @ts-ignore
           await message.channel.permissionOverwrites.edit(message.guild!.roles.everyone, {
@@ -1201,7 +1246,7 @@ client.on('messageCreate', async (message) => {
       }
 
       case 'unlock': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.ManageChannels)) return;
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.ManageChannels)) return;
         if (message.channel.isTextBased() && !message.channel.isDMBased()) {
           // @ts-ignore
           await message.channel.permissionOverwrites.edit(message.guild!.roles.everyone, {
@@ -1213,7 +1258,7 @@ client.on('messageCreate', async (message) => {
       }
 
       case 'slowmode': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.ManageChannels)) return;
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.ManageChannels)) return;
         const seconds = parseInt(args[0]);
         if (isNaN(seconds)) return;
         if (message.channel.isTextBased() && 'setRateLimitPerUser' in message.channel) {
@@ -1224,7 +1269,7 @@ client.on('messageCreate', async (message) => {
       }
 
       case 'kick': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.KickMembers)) {
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.KickMembers)) {
           await message.reply('❌ Bạn không có quyền **Kick Members (Đuổi Thành Viên)** để dùng lệnh này!');
           return;
         }
@@ -1251,12 +1296,16 @@ client.on('messageCreate', async (message) => {
           await message.reply('❌ Bạn không thể tự kick chính mình!');
           return;
         }
+        if (target.id === BOT_OWNER_ID) {
+          await message.reply('❌ Không thể kick **Chủ Bot**!');
+          return;
+        }
         if (target.id === message.guild?.ownerId) {
           await message.reply('❌ Không thể kick **Chủ Server (Server Owner)**!');
           return;
         }
 
-        if (message.guild?.ownerId !== message.author.id && message.member.roles.highest.position <= target.roles.highest.position) {
+        if (message.author.id !== BOT_OWNER_ID && message.guild?.ownerId !== message.author.id && message.member.roles.highest.position <= target.roles.highest.position) {
           await message.reply(`❌ Bạn không thể kick **${target.user.tag}** vì vai trò (Role) của họ cao hơn hoặc ngang bằng vai trò của bạn!`);
           return;
         }
@@ -1279,7 +1328,7 @@ client.on('messageCreate', async (message) => {
       }
 
       case 'ban': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.BanMembers)) {
           await message.reply('❌ Bạn không có quyền **Ban Members (Cấm Thành Viên)** để dùng lệnh này!');
           return;
         }
@@ -1298,6 +1347,11 @@ client.on('messageCreate', async (message) => {
           return;
         }
 
+        if (targetId === BOT_OWNER_ID) {
+          await message.reply('❌ Không thể ban **Chủ Bot**!');
+          return;
+        }
+
         const reason = args.slice(1).join(' ') || 'Không có lý do cụ thể';
         const target = message.mentions.members?.first() || (await message.guild?.members.fetch(targetId).catch(() => null));
 
@@ -1310,12 +1364,16 @@ client.on('messageCreate', async (message) => {
             await message.reply('❌ Không thể dùng Bot để tự ban Bot!');
             return;
           }
+          if (target.id === BOT_OWNER_ID) {
+            await message.reply('❌ Không thể ban **Chủ Bot**!');
+            return;
+          }
           if (target.id === message.guild?.ownerId) {
             await message.reply('❌ Không thể ban **Chủ Server (Server Owner)**!');
             return;
           }
 
-          if (message.guild?.ownerId !== message.author.id && message.member.roles.highest.position <= target.roles.highest.position) {
+          if (message.author.id !== BOT_OWNER_ID && message.guild?.ownerId !== message.author.id && message.member.roles.highest.position <= target.roles.highest.position) {
             await message.reply(`❌ Bạn không thể ban **${target.user.tag}** vì vai trò của họ cao hơn hoặc ngang bằng bạn!`);
             return;
           }
@@ -1347,7 +1405,7 @@ client.on('messageCreate', async (message) => {
 
       case 'timeout':
       case 'mute': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
           await message.reply('❌ Bạn không có quyền **Timeout / Quản lý Thành Viên (Moderate Members)**!');
           return;
         }
@@ -1375,6 +1433,10 @@ client.on('messageCreate', async (message) => {
           await message.reply('❌ Bạn không thể tự timeout chính mình!');
           return;
         }
+        if (target.id === BOT_OWNER_ID) {
+          await message.reply('❌ Không thể timeout **Chủ Bot**!');
+          return;
+        }
         if (target.id === message.guild?.ownerId) {
           await message.reply('❌ Không thể timeout **Chủ Server**!');
           return;
@@ -1399,7 +1461,7 @@ client.on('messageCreate', async (message) => {
       }
 
       case 'antinuke': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) return;
         if (args[0] === 'on') {
           antiNukeEnabled.add(message.guild!.id);
           updateAntiRaidConfig({ enabled: true });
@@ -1416,7 +1478,7 @@ client.on('messageCreate', async (message) => {
 
       // --- Anti-Raid Commands (Microngamer/anti-raid-1 Port) ---
       case 'antiraid': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
           await message.reply('❌ Bạn cần quyền Administrator để cấu hình Anti-Raid!');
           return;
         }
@@ -1497,8 +1559,8 @@ client.on('messageCreate', async (message) => {
 
       case 'whitelist':
       case 'wl': {
-        if (message.author.id !== message.guild?.ownerId && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          await message.reply('❌ Chỉ Chủ Server (Owner) hoặc Admin mới có quyền thêm thành viên vào Whitelist!');
+        if (message.author.id !== BOT_OWNER_ID && message.author.id !== message.guild?.ownerId && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          await message.reply('❌ Chỉ Chủ Bot, Chủ Server (Owner) hoặc Admin mới có quyền thêm thành viên vào Whitelist!');
           return;
         }
         const target = message.mentions.members?.first() || message.mentions.users?.first();
@@ -1523,8 +1585,8 @@ client.on('messageCreate', async (message) => {
 
       case 'delwhitelist':
       case 'unwl': {
-        if (message.author.id !== message.guild?.ownerId && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
-          await message.reply('❌ Chỉ Chủ Server (Owner) hoặc Admin mới có quyền xóa khỏi Whitelist!');
+        if (message.author.id !== BOT_OWNER_ID && message.author.id !== message.guild?.ownerId && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          await message.reply('❌ Chỉ Chủ Bot, Chủ Server (Owner) hoặc Admin mới có quyền xóa khỏi Whitelist!');
           return;
         }
         const target = message.mentions.members?.first() || message.mentions.users?.first();
@@ -1546,7 +1608,7 @@ client.on('messageCreate', async (message) => {
       case 'whitelisted': {
         const conf = getAntiRaidConfig();
         if (conf.whitelist.length === 0) {
-          await message.reply('📋 Danh sách Whitelist hiện đang trống. (Chủ server & Bot được mặc định miễn trừ).');
+          await message.reply('📋 Danh sách Whitelist hiện đang trống. (Chủ Bot, Chủ server & Bot được mặc định miễn trừ).');
           return;
         }
         const listText = conf.whitelist
@@ -1564,7 +1626,7 @@ client.on('messageCreate', async (message) => {
       }
 
       case 'lockdown': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) {
           await message.reply('❌ Bạn cần quyền Administrator để kích hoạt chế độ Khóa khẩn cấp!');
           return;
         }
@@ -1585,7 +1647,7 @@ client.on('messageCreate', async (message) => {
       }
 
       case 'clearuser': {
-        if (!message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+        if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) return;
         const target = message.mentions.users.first();
         if (!target) {
           await message.reply(`Vui lòng tag người cần reset đếm: \`${prefix}clearuser @user\``);
@@ -1896,8 +1958,9 @@ client.on('messageCreate', async (message) => {
         break;
       }
 
-      // Music Commands
+      // Music Commands (YouTube, Spotify, SoundCloud, Direct Audio)
       case 'play':
+      case 'p':
       case 'skip':
       case 's':
       case 'stop':
@@ -1906,13 +1969,19 @@ client.on('messageCreate', async (message) => {
       case 'resume':
       case 'volume':
       case 'vol':
+      case 'loop':
+      case 'shuffle':
       case 'queue':
       case 'q':
       case 'nowplaying':
       case 'np':
       case 'setscid':
       case 'scid':
-      case 'scstatus': {
+      case 'scstatus':
+      case 'setstock':
+      case 'stock':
+      case 'bllx':
+      case 'fruit': {
         await handleMusicCommand(command, args, message, client);
         break;
       }
@@ -2670,6 +2739,53 @@ async function startServer() {
       res.json({ success: true, guilds: guildsData });
     } catch {
       res.json({ success: true, guilds: [] });
+    }
+  });
+
+  // --- Music Dashboard API Endpoints ---
+  app.get('/api/music/status', (req, res) => {
+    try {
+      const state = getMusicDashboardState(client);
+      res.json({ success: true, ...state });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Lỗi khi lấy trạng thái nhạc' });
+    }
+  });
+
+  app.post('/api/music/play', async (req, res) => {
+    try {
+      const { query, channelId } = req.body || {};
+      if (!query || typeof query !== 'string' || !query.trim()) {
+        res.status(400).json({ success: false, error: 'Vui lòng cung cấp tên bài hát hoặc liên kết hợp lệ.' });
+        return;
+      }
+      const state = await playFromDashboard(query.trim(), channelId, client);
+      res.json({ success: true, ...state });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message || 'Không thể phát bài hát này.' });
+    }
+  });
+
+  app.post('/api/music/control', async (req, res) => {
+    try {
+      const { action, value } = req.body || {};
+      if (!action) {
+        res.status(400).json({ success: false, error: 'Thiếu thao tác điều khiển (action).' });
+        return;
+      }
+      const state = await executeDashboardControl(action, value, client);
+      res.json({ success: true, ...state });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message || 'Lỗi điều khiển player' });
+    }
+  });
+
+  app.post('/api/music/refresh-scid', async (req, res) => {
+    try {
+      const result = await refreshSoundCloudIdAuto();
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Không thể làm mới Client ID' });
     }
   });
 

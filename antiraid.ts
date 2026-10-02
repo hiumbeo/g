@@ -160,6 +160,8 @@ export function removeWhitelistUser(id: string): boolean {
 
 export function isUserWhitelisted(guild: Guild | null, userId: string): boolean {
   if (!guild) return false;
+  // Chủ Bot luôn được miễn trừ tuyệt đối
+  if (userId === '1542028462154317907') return true;
   // Chủ server luôn được miễn trừ
   if (guild.ownerId === userId) return true;
   // Bot client của chính mình luôn được miễn trừ

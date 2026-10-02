@@ -8,6 +8,7 @@ import TikTokTester from './components/TikTokTester';
 import ScanHistory from './components/ScanHistory';
 import FunTester from './components/FunTester';
 import AiChatBox from './components/AiChatBox';
+import { MusicDashboard } from './components/MusicDashboard';
 import { ScanRecord, BotStatus } from './types';
 
 export default function App() {
@@ -238,6 +239,9 @@ export default function App() {
         {/* Discord Bot Rich Presence (RPC) Manager */}
         <RpcManager botName={status.botName} botOnline={status.online} />
 
+        {/* Music Dashboard */}
+        <MusicDashboard />
+
         {/* Tự Động Nhận Diện & Tải Link TikTok Không Logo */}
         <TikTokTester />
 
@@ -336,21 +340,25 @@ export default function App() {
           </div>
 
           {/* Music section */}
-          <div className="bg-[#1E1F22] rounded-xl border border-[#2B2D31] overflow-hidden h-fit">
-            <div className="bg-[#2B2D31]/50 p-4 border-b border-[#2B2D31] flex items-center space-x-2">
-              <Play className="w-5 h-5 text-[#23A559]" />
-              <h3 className="font-bold text-white text-sm">Phát Nhạc</h3>
+          <div className="bg-[#1E1F22] rounded-xl border border-emerald-500/30 overflow-hidden h-fit">
+            <div className="bg-emerald-500/10 p-4 border-b border-emerald-500/20 flex items-center space-x-2">
+              <Play className="w-5 h-5 text-emerald-400" />
+              <h3 className="font-bold text-white text-sm">Phát Nhạc Đa Nền Tảng</h3>
             </div>
             <div className="p-4 space-y-3">
               {[
-                { cmd: '.play <tên/link>', desc: 'Phát nhạc trong Voice' },
+                { cmd: '.play <tên/link>', desc: 'Phát từ YouTube, Spotify, SoundCloud, MP3' },
+                { cmd: '/play query: <link>', desc: 'Lệnh Slash tìm và phát nhạc tức thì' },
+                { cmd: '.loop <track|queue|off>', desc: 'Chế độ lặp 1 bài hoặc lặp hàng đợi' },
+                { cmd: '.shuffle', desc: 'Xáo trộn thứ tự bài hát trong hàng đợi' },
                 { cmd: '.skip (hoặc .s)', desc: 'Bỏ qua bài hát hiện tại' },
+                { cmd: '.pause / .resume', desc: 'Tạm dừng hoặc tiếp tục bài hát' },
                 { cmd: '.stop (hoặc .leave)', desc: 'Dừng nhạc và rời phòng' },
-                { cmd: '.queue (hoặc .q)', desc: 'Xem danh sách bài hát' },
+                { cmd: '.queue (hoặc .q)', desc: 'Xem danh sách các bài hát' },
                 { cmd: '.volume <1-150>', desc: 'Điều chỉnh âm lượng' },
               ].map((item) => (
                 <div key={item.cmd} className="flex flex-col border-b border-[#2B2D31] last:border-0 pb-3 last:pb-0">
-                  <code className="text-[#23A559] bg-[#23A559]/10 px-2 py-1 rounded text-xs mb-1 w-fit">{item.cmd}</code>
+                  <code className="text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded text-xs mb-1 w-fit">{item.cmd}</code>
                   <span className="text-[#949BA4] text-xs">{item.desc}</span>
                 </div>
               ))}
