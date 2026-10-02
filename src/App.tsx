@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Shield, Server, Activity, Bot, Zap, Play, Settings, Sparkles, MessageSquare, ShieldAlert, Gamepad2, Blocks, Ticket, LayoutTemplate, Video } from 'lucide-react';
+import { Shield, Server, Activity, Bot, Zap, Play, Settings, Sparkles, MessageSquare, ShieldAlert, Gamepad2, Blocks, Ticket, LayoutTemplate, Video, Swords } from 'lucide-react';
 import AntiRaidDashboard from './components/AntiRaidDashboard';
 import RpcManager from './components/RpcManager';
 import RobloxChecker from './components/RobloxChecker';
@@ -9,6 +9,7 @@ import ScanHistory from './components/ScanHistory';
 import FunTester from './components/FunTester';
 import AiChatBox from './components/AiChatBox';
 import { MusicDashboard } from './components/MusicDashboard';
+import CaroDashboard from './components/CaroDashboard';
 import { ScanRecord, BotStatus } from './types';
 
 export default function App() {
@@ -266,6 +267,9 @@ export default function App() {
           onScanUrl={handleScanUrl}
         />
 
+        {/* Đấu Trường Cờ Caro (Blitz 5x5 & Bot AI) */}
+        <CaroDashboard />
+
         {/* Fun & Mini-games Section */}
         <FunTester />
 
@@ -380,6 +384,29 @@ export default function App() {
               ].map((item) => (
                 <div key={item.cmd} className="flex flex-col border-b border-[#2B2D31] last:border-0 pb-3 last:pb-0">
                   <code className="text-pink-400 bg-pink-500/10 px-2 py-1 rounded text-xs mb-1 w-fit">{item.cmd}</code>
+                  <span className="text-[#949BA4] text-xs">{item.desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Caro Games section */}
+          <div className="bg-[#1E1F22] rounded-xl border border-blue-500/30 overflow-hidden h-fit">
+            <div className="bg-blue-500/10 p-4 border-b border-blue-500/20 flex items-center space-x-2">
+              <Swords className="w-5 h-5 text-blue-400" />
+              <h3 className="font-bold text-white text-sm">Đấu Cờ Caro (Blitz 5x5)</h3>
+            </div>
+            <div className="p-4 space-y-3">
+              {[
+                { cmd: '.caro bot [diff]', desc: 'Solo trực tiếp với Bot AI thông minh' },
+                { cmd: '.caro @user', desc: 'Gửi lời mời thách đấu tới bạn bè' },
+                { cmd: '.caro stats [@user]', desc: 'Xem điểm ELO, Rank & tỷ lệ thắng' },
+                { cmd: '.caro top / rank', desc: 'Bảng Vàng Top 10 cao thủ cờ Caro' },
+                { cmd: '.caro resign / thua', desc: 'Xin đầu hàng ván cờ hiện tại' },
+                { cmd: '/caro bot / challenge', desc: 'Lệnh Slash hỗ trợ giao diện nút bấm' },
+              ].map((item) => (
+                <div key={item.cmd} className="flex flex-col border-b border-[#2B2D31] last:border-0 pb-3 last:pb-0">
+                  <code className="text-blue-400 bg-blue-500/10 px-2 py-1 rounded text-xs mb-1 w-fit">{item.cmd}</code>
                   <span className="text-[#949BA4] text-xs">{item.desc}</span>
                 </div>
               ))}

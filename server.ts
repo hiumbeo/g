@@ -28,6 +28,16 @@ import {
 } from './music';
 import { performWebScan, performFileScan, getScanHistory, clearScanHistory } from './scanner';
 import { calculateShip, calculateGayRate } from './fun';
+import {
+  handleCaroButtonClick,
+  handleCaroPrefixCommand,
+  handleCaroSlashCommand,
+  getAllLeaderboard,
+  getPlayerStats,
+  activeCaroGames,
+  getBotBestMove
+} from './caro';
+import { buildHelpPanel, handleHelpInteraction } from './helpPanel';
 import { backupData } from './backup';
 import { captureServerBackup } from './serverBackup';
 import { setWelcome, setGoodbye, setBoost, getSettings } from './src/welcome';
@@ -320,6 +330,68 @@ const registeredSlashCommands = [
   new SlashCommandBuilder()
     .setName('shuffle')
     .setDescription('Xáo trộn ngẫu nhiên danh sách phát tiếp theo trong hàng đợi'),
+  new SlashCommandBuilder()
+    .setName('help')
+    .setDescription('Hiển thị danh sách tất cả các lệnh của bot (Bảo mật, Nhạc, AI, Roblox, v.v.)'),
+  new SlashCommandBuilder()
+    .setName('ping')
+    .setDescription('Kiểm tra độ trễ (Ping) kết nối của Bot tới Discord Gateway'),
+  new SlashCommandBuilder()
+    .setName('prefix')
+    .setDescription('Xem hoặc thay đổi ký tự tiền tố (Prefix) của bot trong server')
+    .addStringOption(option => option.setName('new_prefix').setDescription('Ký tự prefix mới (VD: ! hoặc ? hoặc .)').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('caro')
+    .setDescription('Hệ thống đấu Cờ Caro tương tác (PvP & Solo vs Bot AI)')
+    .addSubcommand(sub =>
+      sub
+        .setName('bot')
+        .setDescription('Thách đấu cờ Caro với Bot AI')
+        .addStringOption(opt =>
+          opt
+            .setName('difficulty')
+            .setDescription('Độ khó của Bot')
+            .setRequired(false)
+            .addChoices(
+              { name: 'Dễ (Easy)', value: 'easy' },
+              { name: 'Bình thường (Medium)', value: 'medium' },
+              { name: 'Khó (Hard)', value: 'hard' },
+              { name: 'Đại Sư / Bất Bại (Master)', value: 'master' }
+            )
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName('challenge')
+        .setDescription('Gửi lời thách đấu cờ Caro tới một người bạn')
+        .addUserOption(opt =>
+          opt
+            .setName('user')
+            .setDescription('Người bạn muốn thách đấu')
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName('stats')
+        .setDescription('Xem hồ sơ, điểm ELO và tỷ lệ thắng cờ Caro')
+        .addUserOption(opt =>
+          opt
+            .setName('user')
+            .setDescription('Kỳ thủ cần xem hồ sơ (Mặc định: chính bạn)')
+            .setRequired(false)
+        )
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName('top')
+        .setDescription('Xem Bảng Vàng Top 10 cao thủ cờ Caro trong server')
+    )
+    .addSubcommand(sub =>
+      sub
+        .setName('resign')
+        .setDescription('Đầu hàng ván cờ Caro hiện tại')
+    ),
 ];
 
 client.on('ready', async () => {
@@ -356,9 +428,28 @@ client.on('guildCreate', async (guild) => {
 
 // Xử lý Slash Command & Button Interactions
 client.on('interactionCreate', async (interaction) => {
-  // 1. Xử lý các nút bấm (Button Interactions) cho hệ thống Ticket
+  // 0. Xử lý Select Menu (Help Panel Category Navigation)
+  if (interaction.isStringSelectMenu()) {
+    try {
+      if (interaction.customId.startsWith('help_cat_select_')) {
+        const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '.') : '.';
+        const handled = await handleHelpInteraction(interaction, p);
+        if (handled) return;
+      }
+    } catch (menuErr) {
+      console.error('Lỗi khi xử lý SelectMenu tương tác:', menuErr);
+    }
+    return;
+  }
+
+  // 1. Xử lý các nút bấm (Button Interactions) cho Ticket, Caro, Help Panel
   if (interaction.isButton()) {
     try {
+      if (interaction.customId.startsWith('help_btn_')) {
+        const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '.') : '.';
+        const handled = await handleHelpInteraction(interaction, p);
+        if (handled) return;
+      }
       if (interaction.customId === 'btn_create_ticket') {
         await handleCreateTicketButton(interaction);
         return;
@@ -380,6 +471,10 @@ client.on('interactionCreate', async (interaction) => {
         await handlePingAdmin(interaction);
         return;
       }
+      if (interaction.customId.startsWith('caro_')) {
+        const handled = await handleCaroButtonClick(interaction, client);
+        if (handled) return;
+      }
     } catch (btnErr) {
       console.error('Lỗi khi xử lý nút bấm tương tác:', btnErr);
     }
@@ -393,6 +488,45 @@ client.on('interactionCreate', async (interaction) => {
   // Xử lý các Slash Command nghe nhạc (play, skip, pause, resume, stop, queue, volume, loop, shuffle, nowplaying)
   const isMusicHandled = await handleMusicSlashCommand(interaction, client);
   if (isMusicHandled) return;
+
+  // Xử lý Slash Command cờ Caro (/caro bot, /caro challenge, /caro stats, /caro top, /caro resign)
+  const isCaroHandled = await handleCaroSlashCommand(interaction, client);
+  if (isCaroHandled) return;
+
+  if (commandName === 'ping') {
+    await interaction.reply(`🏓 Pong! Độ trễ Gateway: \`${client.ws.ping}ms\``);
+    return;
+  }
+
+  if (commandName === 'prefix') {
+    const currentPrefix = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '.') : '.';
+    const newPrefix = interaction.options.getString('new_prefix');
+    if (!newPrefix) {
+      await interaction.reply({
+        content: `📍 Prefix hiện tại của server này là: \`${currentPrefix}\`\n👉 Bạn có thể dùng lệnh \`.help\` hoặc các lệnh Slash \`/\` bình thường!\n💡 Để đổi prefix: \`/prefix new_prefix: <ký tự>\``,
+        ephemeral: true,
+      });
+      return;
+    }
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Quản trị viên (Administrator)** để đổi prefix!', ephemeral: true });
+      return;
+    }
+    if (newPrefix.length > 3) {
+      await interaction.reply({ content: '❌ Prefix mới chỉ được dài tối đa 3 ký tự!', ephemeral: true });
+      return;
+    }
+    guildPrefixes.set(interaction.guildId!, newPrefix);
+    await interaction.reply(`✅ Đã đổi prefix của server này thành: \`${newPrefix}\``);
+    return;
+  }
+
+  if (commandName === 'help') {
+    const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '.') : '.';
+    const { embed, components } = buildHelpPanel(p, 'home', interaction.user.id);
+    await interaction.reply({ embeds: [embed], components });
+    return;
+  }
 
   if (commandName === 'setwelcome') {
       const channel = interaction.options.getChannel('channel', true) as TextChannel;
@@ -961,9 +1095,35 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  if (!message.content.startsWith(prefix)) return;
+  // Khi người dùng chỉ tag bot một mình: phản hồi thông tin Prefix & hướng dẫn ngay lập tức
+  if (
+    client.user &&
+    (message.content.trim() === `<@${client.user.id}>` || message.content.trim() === `<@!${client.user.id}>`)
+  ) {
+    await message.reply(
+      `👋 Xin chào **${message.author.username}**!\n` +
+      `• Ký tự tiền tố (Prefix) hiện tại của server là: \`${prefix}\`\n` +
+      `• Gõ \`${prefix}help\` hoặc dùng lệnh Slash: \`/help\` để xem danh sách toàn bộ lệnh.\n` +
+      `• Bạn cũng có thể tag trực tiếp bot để gọi lệnh: \`@${client.user.username} help\` hoặc \`@${client.user.username} play <bài hát>\`!\n\n` +
+      `💡 *Mẹo: Nếu bot online nhưng không phản hồi lệnh dấu chấm \`${prefix}\`, hãy kiểm tra xem bạn đã BẬT **MESSAGE CONTENT INTENT** trong Discord Developer Portal chưa nhé!*`
+    ).catch(() => {});
+    return;
+  }
 
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
+  // Xác định prefix phù hợp (cho phép dùng prefix dấu chấm HOẶC tag bot)
+  let matchedPrefix: string | null = null;
+  if (message.content.startsWith(prefix)) {
+    matchedPrefix = prefix;
+  } else if (client.user && message.content.startsWith(`<@${client.user.id}>`)) {
+    matchedPrefix = `<@${client.user.id}>`;
+  } else if (client.user && message.content.startsWith(`<@!${client.user.id}>`)) {
+    matchedPrefix = `<@!${client.user.id}>`;
+  }
+
+  if (!matchedPrefix) return;
+
+  const rawArgs = message.content.slice(matchedPrefix.length).trim();
+  const args = rawArgs.split(/ +/).filter(Boolean);
   const command = args.shift()?.toLowerCase();
 
   if (!command) return;
@@ -971,24 +1131,8 @@ client.on('messageCreate', async (message) => {
   try {
     switch (command) {
       case 'help': {
-        const embed = new EmbedBuilder()
-          .setTitle('🛡️ SentinelBot - Danh Sách Lệnh')
-          .setColor('#2b2d31')
-          .setDescription(`Prefix hiện tại của server này là: \`${prefix}\``)
-          .addFields(
-            { name: '🚨 HỆ THỐNG ANTI-RAID & PHÒNG CHỐNG NUKE', value: `\`${prefix}antiraid <on/off/config>\`, \`${prefix}antiraid limit <loại> <số>\`, \`${prefix}whitelist @user\`, \`${prefix}delwhitelist @user\`, \`${prefix}whitelisted\`, \`${prefix}lockdown <on/off>\`, \`${prefix}clearuser @user\`, \`${prefix}raidlogs\`` },
-            { name: '🤖 CHAT AI CỌC TÍNH (GEMINI 3.8)', value: `\`${prefix}chat <câu hỏi>\`, \`${prefix}ai <nội dung>\`, hoặc tag trực tiếp \`@SentinelBot\` (Cà khịa cực gắt nếu hỏi ngu 🤣💀🤡🖕)` },
-            { name: '📱 TẢI & NHẬN DIỆN TIKTOK (NO WATERMARK)', value: `\`${prefix}tiktok <link>\`, \`${prefix}tt <link>\`, \`${prefix}tiktok auto <on/off>\`, hoặc Lệnh Slash: \`/tiktok url: <link>\` (Tự động xóa tin nhắn link gốc & gửi video không logo, nhạc nền MP3 kèm tag người gửi)` },
-            { name: '🎯 BẢO MẬT & QUẢN TRỊ', value: `\`${prefix}clean <số|bot|@user|links>\`, \`${prefix}snipe\`, \`${prefix}lock\`, \`${prefix}unlock\`, \`${prefix}slowmode <giây>\`, \`${prefix}kick @user\`, \`${prefix}ban @user\`, \`${prefix}timeout @user <phút>\`, \`${prefix}antinuke <on/off>\`, \`${prefix}antispam <on/off>\`, \`${prefix}scanweb <url>\`, \`${prefix}scanfile\`, \`${prefix}prefix <ký tự mới>\`` },
-            { name: '🎮 RICH PRESENCE (RPC)', value: `\`${prefix}rpc <playing/watching/listening/streaming/competing> <tên>\`, \`${prefix}rpc status <online/idle/dnd>\`, \`${prefix}rpc rotate <on/off>\`, \`${prefix}rpc info\`` },
-            { name: '👤 THÔNG TIN & HỒ SƠ NGƯỜI DÙNG', value: `\`${prefix}w [@user|ID]\`, \`${prefix}whois\`, \`${prefix}avt [@user|ID]\`, \`${prefix}banner [@user|ID]\` (Xem hồ sơ tài khoản, ngày tạo acc, ngày join server, badges, vai trò, quyền hạn, avatar full HD & banner)` },
-            { name: '🔗 AUTO CHAT (WEBHOOK)', value: `\`${prefix}autochat on [link_webhook]\` (Bật, nếu ko nhập link bot sẽ tự tạo), \`${prefix}autochat off\` (Tắt nội bộ), \`${prefix}autochat clear\` (Xóa toàn bộ webhook trong kênh)` },
-            { name: '🧱 TRA CỨU TÀI KHOẢN ROBLOX', value: `\`${prefix}roblox <username/ID>\`, \`${prefix}rbx <tên>\`, hoặc Lệnh Slash: \`/roblox username: <tên>\` (Xem avatar, ngày join, tuổi acc, link profile)` },
-            { name: '🎉 GIẢI TRÍ & THẦN SỐ HỌC', value: `\`${prefix}ghepdoi @crush\`, \`${prefix}ghepdoi @user1 @user2\`, \`${prefix}gay [@user]\`` },
-            { name: '🎵 ÂM NHẠC & VOICE', value: `\`${prefix}play <tên/link>\`, \`${prefix}skip\`, \`${prefix}stop\`, \`${prefix}pause\`, \`${prefix}resume\`, \`${prefix}volume <1-150>\`, \`${prefix}queue\`, \`${prefix}nowplaying\`` }
-          )
-          .setFooter({ text: 'SentinelBot • Powered by Gemini 3.8 Flash' });
-        await message.reply({ embeds: [embed] });
+        const { embed, components } = buildHelpPanel(prefix, 'home', message.author.id);
+        await message.reply({ embeds: [embed], components });
         break;
       }
 
@@ -1825,6 +1969,15 @@ client.on('messageCreate', async (message) => {
           .setTimestamp();
 
         await message.reply({ embeds: [embed] });
+        break;
+      }
+
+      // --- Caro / Gomoku Interactive Games ---
+      case 'caro':
+      case 'gomoku':
+      case 'cocaro':
+      case 'co': {
+        await handleCaroPrefixCommand(message, args, client, prefix);
         break;
       }
 
@@ -2786,6 +2939,46 @@ async function startServer() {
       res.json({ success: true, ...result });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message || 'Không thể làm mới Client ID' });
+    }
+  });
+
+  // --- Caro Game API Endpoints ---
+  app.get('/api/caro/leaderboard', (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      const leaderboard = getAllLeaderboard();
+      res.json({
+        success: true,
+        leaderboard,
+        activeGamesCount: activeCaroGames.size,
+        totalPlayers: leaderboard.length,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Lỗi khi lấy BXH cờ Caro' });
+    }
+  });
+
+  app.get('/api/caro/stats/:userId', (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      const stats = getPlayerStats(req.params.userId);
+      res.json({ success: true, stats });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Lỗi khi tra cứu thống kê kỳ thủ' });
+    }
+  });
+
+  app.post('/api/caro/bot-move', (req, res) => {
+    try {
+      const { board, botPiece, difficulty } = req.body || {};
+      if (!Array.isArray(board)) {
+        res.status(400).json({ success: false, error: 'Bàn cờ không hợp lệ' });
+        return;
+      }
+      const move = getBotBestMove(board, botPiece || 'O', difficulty || 'hard');
+      res.json({ success: true, move });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message || 'Lỗi tính toán nước cờ' });
     }
   });
 
