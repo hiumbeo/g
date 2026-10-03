@@ -1104,7 +1104,12 @@ client.on('messageDelete', (message) => {
 });
 
 client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
+  if (message.partial) {
+    try {
+      await message.fetch();
+    } catch {}
+  }
+  if (!message.author || message.author.bot) return;
 
   // --- AFK System ---
   if (getAfk(message.author.id)) {
@@ -1252,12 +1257,13 @@ client.on('messageCreate', async (message) => {
   }
 
   // 2. Kiểm tra quyền sử dụng Bot (Chỉ Chủ Bot hoặc người trong Whitelist)
-  const access = checkBotAccess(message.author.id, message.guild, message.member);
+  const fullMember = message.member || (message.guild ? await message.guild.members.fetch(message.author.id).catch(() => null) : null);
+  const access = checkBotAccess(message.author.id, message.guild, fullMember);
   if (!access.allowed) {
     await message.reply(
       `⛔ **Truy cập bị từ chối:** Bot đang ở chế độ Riêng tư (Private Whitelist).\n` +
       `Chỉ **Chủ Bot** và những người trong danh sách Whitelist mới có quyền sử dụng!\n` +
-      `👉 Dùng lệnh \`${prefix}wl list\` để xem danh sách hoặc liên hệ Chủ Bot để được cấp quyền.`
+      `👉 Dùng lệnh \`${prefix}wl list\` để xem danh sách hoặc gõ \`${prefix}wl claim\` để nhận quyền Chủ Bot.`
     ).catch(() => {});
     return;
   }
@@ -1924,7 +1930,8 @@ client.on('messageCreate', async (message) => {
         break;
       }
 
-      case 'clearuser': {
+      case 'resetuser':
+      case 'clearusercounter': {
         if (message.author.id !== BOT_OWNER_ID && !message.member?.permissions.has(PermissionsBitField.Flags.Administrator)) return;
         const target = message.mentions.users.first();
         if (!target) {

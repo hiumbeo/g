@@ -96,8 +96,9 @@ export function isOwner(userId: string, guild?: Guild | null, member?: GuildMemb
   if (process.env.OWNER_ID && process.env.OWNER_ID.trim() === userId) return true;
   // Chủ Server luôn có quyền cao nhất trong Server của họ
   if (guild && guild.ownerId === userId) return true;
-  // Thành viên có quyền Quản trị viên (Administrator)
+  // Thành viên có quyền Quản trị viên (Administrator) hoặc Quản lý Server (Manage Server)
   if (member?.permissions?.has(PermissionsBitField.Flags.Administrator)) return true;
+  if (member?.permissions?.has(PermissionsBitField.Flags.ManageGuild)) return true;
   return false;
 }
 
@@ -115,11 +116,14 @@ export function checkBotAccess(
 ): { allowed: boolean; isOwner: boolean } {
   const userIsOwner = isOwner(userId, guild, member);
   if (userIsOwner) {
+    if (!configCache.ownerIds.includes(userId)) {
+      addOwnerId(userId);
+    }
     return { allowed: true, isOwner: true };
   }
 
-  // Tự động nhận diện người dùng đầu tiên là Owner nếu danh sách owner trống
-  if (configCache.ownerIds.length === 0) {
+  // Nếu Whitelist chưa có ai, tự động nhận diện người dùng này làm Owner và cho phép sử dụng
+  if (configCache.whitelist.length === 0) {
     addOwnerId(userId);
     return { allowed: true, isOwner: true };
   }
@@ -216,17 +220,18 @@ export async function handleWhitelistPrefixCommand(
     return;
   }
 
-  // Nếu chưa có chủ bot nào được lưu và người gửi là Server Owner, cho phép họ nhận quyền chủ bot (?wl claim)
-  if (sub === 'claim') {
-    if (configCache.ownerIds.length === 0 || (message.guild && message.guild.ownerId === authorId)) {
-      addOwnerId(authorId);
-      await message.reply(`👑 Chúc mừng! Bạn (<@${authorId}>) đã được ghi nhận là **Chủ Sở Hữu Bot**.`);
-      return;
-    }
+  const member = message.member || (message.guild ? await message.guild.members.fetch(authorId).catch(() => null) : null);
+  const isAuthorOwner = isOwner(authorId, message.guild, member);
+
+  // Nhận quyền chủ bot (?wl claim hoặc ?wl owner)
+  if (sub === 'claim' || sub === 'nhan' || sub === 'owner') {
+    addOwnerId(authorId);
+    await message.reply(`👑 **Chúc mừng!** Bạn (<@${authorId}>) đã được ghi nhận quyền **Chủ Sở Hữu Bot** thành công!`);
+    return;
   }
 
   // TẤT CẢ CÁC HÀNH ĐỘNG DƯỚI ĐÂY BẮT BUỘC PHẢI LÀ CHỦ BOT (OWNER)
-  if (!isOwner(authorId)) {
+  if (!isAuthorOwner && configCache.whitelist.length > 0) {
     await message.reply('⛔ **Chỉ Chủ Sở Hữu Bot (Bot Owner)** mới có quyền quản lý danh sách Whitelist!');
     return;
   }
