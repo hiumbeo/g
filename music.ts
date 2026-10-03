@@ -627,12 +627,16 @@ export async function executePlay(
   requestedBy: string,
   client: any
 ): Promise<{ success: boolean; message: string; song?: Song; queueLength?: number }> {
-  const permissions = voiceChannel.permissionsFor(guild.members.me!);
-  if (!permissions?.has(PermissionsBitField.Flags.Connect) || !permissions.has(PermissionsBitField.Flags.Speak)) {
-    return {
-      success: false,
-      message: 'Bot không có quyền Kết nối (Connect) hoặc Nói (Speak) trong kênh thoại này!',
-    };
+  // Kiểm tra quyền của bot trong kênh thoại
+  const botMember = guild.members?.me || (client.user?.id ? await guild.members?.fetch(client.user.id).catch(() => null) : null);
+  if (botMember) {
+    const permissions = voiceChannel.permissionsFor(botMember);
+    if (permissions && (!permissions.has(PermissionsBitField.Flags.Connect) || !permissions.has(PermissionsBitField.Flags.Speak))) {
+      return {
+        success: false,
+        message: `❌ Bot không có quyền **Kết nối (Connect)** hoặc **Nói (Speak)** trong kênh thoại **${voiceChannel.name}**!`,
+      };
+    }
   }
 
   const resolveRes = await resolveSongs(query, requestedBy);
@@ -648,12 +652,43 @@ export async function executePlay(
   let queue = musicQueues.get(guild.id);
   let connection = getVoiceConnection(guild.id);
 
-  if (!connection || connection.state.status === VoiceConnectionStatus.Destroyed) {
+  // Kiểm tra nếu chưa có connection hoặc connection đã bị hủy hoặc đang ở kênh thoại khác
+  const isConnectionValid = connection && 
+    connection.state.status !== VoiceConnectionStatus.Destroyed && 
+    connection.state.status !== VoiceConnectionStatus.Disconnected;
+
+  const isSameChannel = connection?.joinConfig?.channelId === voiceChannel.id;
+
+  if (!isConnectionValid || !isSameChannel) {
+    if (connection && connection.state.status !== VoiceConnectionStatus.Destroyed) {
+      try {
+        connection.destroy();
+      } catch {}
+    }
+
     connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator as any,
+      selfDeaf: false,
+      selfMute: false,
     });
+  }
+
+  // Đợi Voice Connection vào trạng thái READY để đảm bảo bot ĐÃ VÀO PHÒNG THOẠI thành công
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+    console.log(`[Music] Successfully connected to Voice Channel: "${voiceChannel.name}" in "${guild.name}"`);
+  } catch (voiceConnErr: any) {
+    console.error(`[Music] Failed to enter Ready state for voice channel ${voiceChannel.id}:`, voiceConnErr);
+    try {
+      connection.destroy();
+    } catch {}
+    musicQueues.delete(guild.id);
+    return {
+      success: false,
+      message: `❌ Bot không thể kết nối vào phòng thoại **${voiceChannel.name}** (Lỗi kết nối Voice Gateway: ${voiceConnErr?.message || 'Timeout 10s'}).`,
+    };
   }
 
   if (!queue) {
@@ -1129,13 +1164,13 @@ export async function handleMusicSlashCommand(interaction: ChatInputCommandInter
     return true;
   }
 
-  const member = interaction.member as any;
-  const memberVoiceChannel = member?.voice?.channel;
+  const guildMember = interaction.guild ? (interaction.guild.members.cache.get(interaction.user.id) || await interaction.guild.members.fetch(interaction.user.id).catch(() => null)) : null;
+  const memberVoiceChannel = guildMember?.voice?.channel || (interaction.member as any)?.voice?.channel || interaction.guild?.voiceStates.cache.get(interaction.user.id)?.channel;
 
   switch (commandName) {
     case 'play': {
       if (!memberVoiceChannel) {
-        await interaction.reply({ content: '❌ Bạn cần tham gia vào một kênh thoại (Voice Channel) trước!', ephemeral: true });
+        await interaction.reply({ content: '❌ Bạn cần tham gia vào một kênh thoại (Voice Channel) trước khi nghe nhạc!', ephemeral: true });
         return true;
       }
       const query = interaction.options.getString('query', true);
