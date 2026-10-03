@@ -25,6 +25,9 @@ import {
   executeDashboardControl,
   playFromDashboard,
   refreshSoundCloudIdAuto,
+  loadMusicConfig,
+  saveMusicConfig,
+  fetchBloxFruitsStock,
 } from './music';
 import { performWebScan, performFileScan, getScanHistory, clearScanHistory } from './scanner';
 import { calculateShip, calculateGayRate } from './fun';
@@ -428,6 +431,134 @@ const registeredSlashCommands = [
         .setDescription('Bật hoặc tắt chế độ giới hạn Whitelist')
         .addBooleanOption(opt => opt.setName('enabled').setDescription('True = Bật (Chỉ Owner & Whitelist), False = Tắt (Tất cả)').setRequired(true))
     ),
+  new SlashCommandBuilder()
+    .setName('clean')
+    .setDescription('Dọn dẹp và xóa tin nhắn hàng loạt theo bộ lọc (bot, link, user hoặc tất cả)')
+    .addIntegerOption(opt => opt.setName('amount').setDescription('Số lượng tin nhắn cần xóa (1-100, mặc định: 50)').setMinValue(1).setMaxValue(100).setRequired(false))
+    .addStringOption(opt => opt.setName('filter').setDescription('Loại tin nhắn cần lọc để xóa').setRequired(false).addChoices(
+      { name: 'Tất cả tin nhắn (All)', value: 'all' },
+      { name: 'Chỉ tin nhắn từ Bot & Lệnh prefix', value: 'bot' },
+      { name: 'Chỉ tin nhắn chứa Link / URL', value: 'links' },
+      { name: 'Chỉ tin nhắn của một người dùng cụ thể', value: 'user' },
+    ))
+    .addUserOption(opt => opt.setName('user').setDescription('Thành viên cần xóa tin nhắn (khi chọn lọc theo user)').setRequired(false))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageMessages),
+  new SlashCommandBuilder()
+    .setName('lock')
+    .setDescription('Khóa kênh hiện tại (ngăn @everyone gửi tin nhắn)')
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels),
+  new SlashCommandBuilder()
+    .setName('unlock')
+    .setDescription('Mở khóa kênh hiện tại (cho phép @everyone gửi tin nhắn trở lại)')
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels),
+  new SlashCommandBuilder()
+    .setName('slowmode')
+    .setDescription('Thiết lập chế độ làm chậm chat (Slowmode) cho kênh hiện tại')
+    .addIntegerOption(opt => opt.setName('seconds').setDescription('Thời gian chờ giữa 2 tin nhắn (0 để tắt, tối đa 21600 giây)').setMinValue(0).setMaxValue(21600).setRequired(true))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels),
+  new SlashCommandBuilder()
+    .setName('snipe')
+    .setDescription('Xem lại tin nhắn gần nhất vừa bị xóa trong kênh này'),
+  new SlashCommandBuilder()
+    .setName('antiraid')
+    .setDescription('Quản lý hệ thống bảo vệ máy chủ Anti-Raid thời gian thực')
+    .addSubcommand(sub => sub.setName('status').setDescription('Xem trạng thái cấu hình hiện tại của hệ thống Anti-Raid'))
+    .addSubcommand(sub => sub.setName('toggle').setDescription('Bật hoặc tắt hệ thống Anti-Raid').addBooleanOption(opt => opt.setName('enabled').setDescription('True = Bật bảo vệ, False = Tắt').setRequired(true)))
+    .addSubcommand(sub => sub.setName('punish').setDescription('Cài đặt hình thức xử phạt kẻ phá hoại').addStringOption(opt => opt.setName('action').setDescription('Hình thức phạt').setRequired(true).addChoices(
+      { name: 'Cấm vĩnh viễn (Ban)', value: 'ban' },
+      { name: 'Đuổi khỏi server (Kick)', value: 'kick' },
+      { name: 'Cách ly (Timeout)', value: 'timeout' },
+    )))
+    .addSubcommand(sub => sub.setName('logs').setDescription('Xem nhật ký các vụ ngăn chặn Raid gần nhất'))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
+  new SlashCommandBuilder()
+    .setName('lockdown')
+    .setDescription('Khóa khẩn cấp (Panic Lockdown) toàn bộ các kênh trong máy chủ khi bị raid')
+    .addStringOption(opt => opt.setName('mode').setDescription('Bật (khóa khẩn cấp) hoặc Tắt (mở lại bình thường)').setRequired(true).addChoices(
+      { name: 'BẬT Khóa khẩn cấp (Lockdown ON)', value: 'on' },
+      { name: 'TẮT Khóa khẩn cấp (Lockdown OFF)', value: 'off' },
+    ))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
+  new SlashCommandBuilder()
+    .setName('antispam')
+    .setDescription('Bật/Tắt hệ thống tự động ngăn chặn Spam & gửi Link trái phép')
+    .addStringOption(opt => opt.setName('mode').setDescription('Bật hoặc Tắt').setRequired(true).addChoices(
+      { name: 'Bật (ON)', value: 'on' },
+      { name: 'Tắt (OFF)', value: 'off' },
+    ))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
+  new SlashCommandBuilder()
+    .setName('backup')
+    .setDescription('Sao lưu cấu hình bot hoặc sao lưu toàn bộ cấu trúc máy chủ')
+    .addSubcommand(sub => sub.setName('data').setDescription('Sao lưu tệp dữ liệu bot và cấu hình'))
+    .addSubcommand(sub => sub.setName('server').setDescription('Sao lưu toàn bộ danh mục, kênh chat và vai trò của máy chủ'))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
+  new SlashCommandBuilder()
+    .setName('scanweb')
+    .setDescription('Quét bảo mật liên kết / URL (phát hiện phishing, scam, malware, chứng chỉ SSL)')
+    .addStringOption(opt => opt.setName('url').setDescription('Đường dẫn website cần quét kiểm tra').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('scanfile')
+    .setDescription('Quét kiểm tra tệp tin (File) đính kèm bằng hệ thống phân tích Sentinel CyberSec')
+    .addAttachmentOption(opt => opt.setName('file').setDescription('Tải lên tệp tin cần quét').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('ship')
+    .setDescription('Bói tơ duyên, tính toán mức độ hợp đôi và đẩy thuyền giữa 2 người')
+    .addUserOption(opt => opt.setName('user1').setDescription('Người thứ nhất (hoặc crush của bạn)').setRequired(true))
+    .addUserOption(opt => opt.setName('user2').setDescription('Người thứ hai (Mặc định: chính bạn nếu để trống)').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('gay')
+    .setDescription('Máy đo độ năng lượng cầu vồng (Gay Scanner) vui nhộn')
+    .addUserOption(opt => opt.setName('user').setDescription('Thành viên cần kiểm tra (Mặc định: chính bạn)').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('chat')
+    .setDescription('Trò chuyện và hỏi đáp thông minh với Trí tuệ nhân tạo AI (Gemini 3.8 Flash)')
+    .addStringOption(opt => opt.setName('prompt').setDescription('Câu hỏi hoặc nội dung cần giải đáp').setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('stock')
+    .setDescription('Xem thông tin kho trái ác quỷ (Blox Fruits Stock) hiện tại'),
+  new SlashCommandBuilder()
+    .setName('setstock')
+    .setDescription('Cập nhật dữ liệu Stock Blox Fruits (Quản trị viên)')
+    .addStringOption(opt => opt.setName('info').setDescription('Nội dung stock mới (VD: Kitsune, Leopard, Dragon)').setRequired(true))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
+  new SlashCommandBuilder()
+    .setName('rpc')
+    .setDescription('Tùy chỉnh Rich Presence (Hoạt động & Trạng thái hiển thị của Bot)')
+    .addSubcommand(sub => sub.setName('info').setDescription('Xem trạng thái Rich Presence hiện tại'))
+    .addSubcommand(sub => sub.setName('status').setDescription('Đổi trạng thái online/idle/dnd/invisible').addStringOption(opt => opt.setName('state').setDescription('Trạng thái').setRequired(true).addChoices(
+      { name: 'Trực tuyến (Online)', value: 'online' },
+      { name: 'Chờ (Idle)', value: 'idle' },
+      { name: 'Đừng làm phiền (Do Not Disturb)', value: 'dnd' },
+      { name: 'Ẩn (Invisible)', value: 'invisible' },
+    )))
+    .addSubcommand(sub => sub.setName('set').setDescription('Thiết lập hoạt động tùy chỉnh')
+      .addStringOption(opt => opt.setName('type').setDescription('Loại hoạt động').setRequired(true).addChoices(
+        { name: 'Đang chơi (Playing)', value: 'playing' },
+        { name: 'Đang xem (Watching)', value: 'watching' },
+        { name: 'Đang nghe (Listening)', value: 'listening' },
+        { name: 'Đang phát trực tiếp (Streaming)', value: 'streaming' },
+        { name: 'Đang cạnh tranh (Competing)', value: 'competing' },
+      ))
+      .addStringOption(opt => opt.setName('text').setDescription('Nội dung hiển thị').setRequired(true))
+      .addStringOption(opt => opt.setName('stream_url').setDescription('URL kênh phát sóng (khi chọn Streaming, VD: Twitch)').setRequired(false))
+    )
+    .addSubcommand(sub => sub.setName('rotate').setDescription('Bật hoặc tắt chế độ tự động luân phiên đổi trạng thái').addBooleanOption(opt => opt.setName('enabled').setDescription('True = Bật tự động, False = Tắt').setRequired(true)))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
+  new SlashCommandBuilder()
+    .setName('autochat')
+    .setDescription('Quản lý tính năng tự động chat bằng Webhook trong kênh')
+    .addSubcommand(sub => sub.setName('on').setDescription('Kích hoạt auto chat tại kênh này').addStringOption(opt => opt.setName('webhook_url').setDescription('Link Webhook (để trống bot sẽ tự tạo)').setRequired(false)))
+    .addSubcommand(sub => sub.setName('off').setDescription('Tắt chế độ auto chat tại kênh này'))
+    .addSubcommand(sub => sub.setName('clear').setDescription('Xóa toàn bộ Webhook trong kênh này'))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageWebhooks),
+  new SlashCommandBuilder()
+    .setName('watch')
+    .setDescription('Tự động xóa ngay lập tức mọi tin nhắn của một đối tượng chỉ định')
+    .addSubcommand(sub => sub.setName('add').setDescription('Thêm người dùng vào danh sách theo dõi auto-delete').addUserOption(opt => opt.setName('user').setDescription('Thành viên cần watch').setRequired(true)))
+    .addSubcommand(sub => sub.setName('remove').setDescription('Gỡ người dùng khỏi danh sách theo dõi auto-delete').addUserOption(opt => opt.setName('user').setDescription('Thành viên cần unwatch').setRequired(true)))
+    .addSubcommand(sub => sub.setName('list').setDescription('Xem danh sách những người đang bị watch'))
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageMessages),
 ];
 
 client.on('ready', async () => {
@@ -438,28 +569,32 @@ client.on('ready', async () => {
   applyRpcToBot(client);
   startRpcRotation(client);
 
-  // Đăng ký Slash Commands toàn cầu và theo từng Guild
+  // Đăng ký Slash Commands toàn cầu và TRIỆT TIÊU triệt để tình trạng double 2 lệnh trong Discord
   try {
     const commandsJson = registeredSlashCommands.map((c) => c.toJSON());
+
+    // 1. DỌN SẠCH guild-level commands trên tất cả các server bot tham gia
+    // (Nguyên nhân chính gây ra việc Discord hiển thị nhân đôi 2 lệnh cùng tên là vừa có Global vừa có Guild commands)
+    for (const [, guild] of client.guilds.cache) {
+      await guild.commands.set([]).catch(() => {});
+    }
+
+    // 2. Đăng ký duy nhất 1 bản toàn cầu (Global) qua client.application
     if (client.application) {
       await client.application.commands.set(commandsJson);
-      console.log('✅ Đã đăng ký Slash Commands (/roblox, /ban, /kick, /timeout) toàn cầu!');
-    }
-    for (const [, guild] of client.guilds.cache) {
-      await guild.commands.set(commandsJson).catch(() => {});
+      console.log(`✅ Đã đăng ký đồng bộ ${registeredSlashCommands.length} Slash Commands toàn cầu! (Đã triệt tiêu hoàn toàn lỗi double lệnh)`);
     }
   } catch (err) {
     console.warn('Lỗi khi đăng ký Slash Commands:', err);
   }
 });
 
-// Đăng ký Slash Command ngay khi bot được mời vào server mới
+// Khi bot vào server mới: chỉ dọn dẹp guild commands để sử dụng global commands đồng bộ, không bao giờ bị double 2 lệnh
 client.on('guildCreate', async (guild) => {
   try {
-    const commandsJson = registeredSlashCommands.map((c) => c.toJSON());
-    await guild.commands.set(commandsJson);
+    await guild.commands.set([]).catch(() => {});
   } catch (err) {
-    console.warn(`Không thể đăng ký Slash Command cho guild ${guild.id}:`, err);
+    console.warn(`Không thể dọn dẹp Guild Commands cho guild ${guild.id}:`, err);
   }
 });
 
@@ -1090,6 +1225,507 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.editReply(`❌ Không thể tải banner: ${err.message || 'Lỗi không xác định'}`);
     }
     return;
+  }
+
+  // --- Slash Command: /clean ---
+  if (commandName === 'clean') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageMessages)) {
+      await interaction.reply({ content: '❌ Bạn không có quyền **Manage Messages (Quản lý tin nhắn)**!', ephemeral: true });
+      return;
+    }
+    const channel = interaction.channel;
+    if (!channel || !channel.isTextBased() || !('bulkDelete' in channel)) {
+      await interaction.reply({ content: '❌ Lệnh chỉ dùng được trong kênh văn bản của máy chủ!', ephemeral: true });
+      return;
+    }
+    await interaction.deferReply({ ephemeral: true });
+    const amount = interaction.options.getInteger('amount') || 50;
+    const filter = interaction.options.getString('filter') || 'all';
+    const targetUser = interaction.options.getUser('user');
+
+    const fetched = await (channel as any).messages.fetch({ limit: amount });
+    let messagesToDelete = fetched;
+
+    if (filter === 'bot') {
+      const p = interaction.guild ? (guildPrefixes.get(interaction.guild.id) || '?') : '?';
+      messagesToDelete = fetched.filter((m: any) => m.author.bot || m.content.startsWith(p) || m.content.startsWith('!') || m.content.startsWith('.'));
+    } else if (filter === 'links') {
+      const urlRegex = /(https?:\/\/[^\s]+)|(discord\.(gg|io|me|li)\/[^\s]+)|(discord\.com\/invite\/[^\s]+)/gi;
+      messagesToDelete = fetched.filter((m: any) => urlRegex.test(m.content));
+    } else if (filter === 'user' && targetUser) {
+      messagesToDelete = fetched.filter((m: any) => m.author.id === targetUser.id);
+    }
+
+    if (messagesToDelete.size === 0) {
+      await interaction.editReply('🧹 Không tìm thấy tin nhắn nào phù hợp với bộ lọc trong phạm vi đã chọn.');
+      return;
+    }
+    const deleted = await (channel as any).bulkDelete(messagesToDelete, true);
+    await interaction.editReply(`🧹 Đã dọn dẹp thành công **${deleted.size}** tin nhắn trong kênh!`);
+    return;
+  }
+
+  // --- Slash Command: /lock ---
+  if (commandName === 'lock') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageChannels)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Manage Channels (Quản lý Kênh)**!', ephemeral: true });
+      return;
+    }
+    if (interaction.channel && 'permissionOverwrites' in interaction.channel && interaction.guild) {
+      await (interaction.channel as any).permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        SendMessages: false,
+      });
+      await interaction.reply('🔒 Kênh này đã bị khóa!');
+    }
+    return;
+  }
+
+  // --- Slash Command: /unlock ---
+  if (commandName === 'unlock') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageChannels)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Manage Channels (Quản lý Kênh)**!', ephemeral: true });
+      return;
+    }
+    if (interaction.channel && 'permissionOverwrites' in interaction.channel && interaction.guild) {
+      await (interaction.channel as any).permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        SendMessages: null,
+      });
+      await interaction.reply('🔓 Kênh này đã được mở khóa!');
+    }
+    return;
+  }
+
+  // --- Slash Command: /slowmode ---
+  if (commandName === 'slowmode') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageChannels)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Manage Channels (Quản lý Kênh)**!', ephemeral: true });
+      return;
+    }
+    const seconds = interaction.options.getInteger('seconds', true);
+    if (interaction.channel && 'setRateLimitPerUser' in interaction.channel) {
+      await (interaction.channel as any).setRateLimitPerUser(seconds);
+      await interaction.reply(`⏱️ Đã đặt chế độ làm chậm (Slowmode) cho kênh là **${seconds} giây**!`);
+    }
+    return;
+  }
+
+  // --- Slash Command: /snipe ---
+  if (commandName === 'snipe') {
+    const snipedMessage = snipes.get(interaction.channelId);
+    if (!snipedMessage) {
+      await interaction.reply({ content: 'Không có tin nhắn nào vừa bị xóa trong kênh này!', ephemeral: true });
+      return;
+    }
+    const embed = new EmbedBuilder()
+      .setTitle('🕵️ Tin Nhắn Vừa Bị Xóa (Snipe)')
+      .setColor('#5865F2')
+      .setDescription(`\`\`\`${snipedMessage.content}\`\`\``)
+      .addFields(
+        { name: 'Người gửi', value: snipedMessage.author, inline: true },
+        { name: 'Thời gian', value: `<t:${Math.floor(snipedMessage.timestamp / 1000)}:R>`, inline: true }
+      );
+    await interaction.reply({ embeds: [embed] });
+    return;
+  }
+
+  // --- Slash Command: /antiraid ---
+  if (commandName === 'antiraid') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Administrator (Quản trị viên)** để quản lý Anti-Raid!', ephemeral: true });
+      return;
+    }
+    const sub = interaction.options.getSubcommand();
+    if (sub === 'status') {
+      const conf = getAntiRaidConfig();
+      const embed = new EmbedBuilder()
+        .setTitle('🛡️ Cấu Hình Hệ Thống Anti-Raid')
+        .setColor(conf.enabled ? '#23A559' : '#ED4245')
+        .setDescription(`Trạng thái: ${conf.enabled ? '🟢 **ĐANG BẬT BẢO VỆ**' : '🔴 **ĐANG TẮT**'} | Lockdown: ${conf.lockdownMode ? '🔒 **KHẨN CẤP**' : '🔓 Bình thường'}`)
+        .addFields(
+          { name: 'Channel Create Limit', value: `\`${conf.channelCreateLimit}/phút\``, inline: true },
+          { name: 'Channel Delete Limit', value: `\`${conf.channelDeleteLimit}/phút\``, inline: true },
+          { name: 'Role Create Limit', value: `\`${conf.roleCreateLimit}/phút\``, inline: true },
+          { name: 'Role Delete Limit', value: `\`${conf.roleDeleteLimit}/phút\``, inline: true },
+          { name: 'Ban Limit (Mass Ban)', value: `\`${conf.banLimit}/phút\``, inline: true },
+          { name: 'Kick Limit (Mass Kick)', value: `\`${conf.kickLimit}/phút\``, inline: true },
+          { name: 'Mass Join Threshold', value: `\`${conf.massJoinLimit} thành viên / 10s\``, inline: true },
+          { name: 'Hình thức xử phạt', value: `\`${conf.punishment.toUpperCase()}\``, inline: true },
+          { name: 'Whitelist', value: `\`${conf.whitelist.length} người/bot\``, inline: true }
+        )
+        .setTimestamp();
+      await interaction.reply({ embeds: [embed] });
+      return;
+    }
+    if (sub === 'toggle') {
+      const enabled = interaction.options.getBoolean('enabled', true);
+      updateAntiRaidConfig({ enabled });
+      await interaction.reply(`🚨 **[ANTI-RAID]** Đã ${enabled ? '🟢 **KÍCH HOẠT**' : '🔴 **TẠM DỪNG**'} bảo vệ máy chủ!`);
+      return;
+    }
+    if (sub === 'punish') {
+      const action = interaction.options.getString('action', true);
+      updateAntiRaidConfig({ punishment: action as any });
+      await interaction.reply(`✅ Đã đổi hình thức xử phạt khi phát hiện Raid sang: **${action.toUpperCase()}**`);
+      return;
+    }
+    if (sub === 'logs') {
+      const incidents = getRaidIncidents();
+      if (incidents.length === 0) {
+        await interaction.reply('🛡️ Chưa ghi nhận vụ xâm nhập hoặc raid nào! Máy chủ an toàn.');
+        return;
+      }
+      const recent = incidents.slice(0, 5);
+      const embed = new EmbedBuilder()
+        .setTitle('🚨 Nhật Ký Ngăn Chặn Raid Gần Nhất')
+        .setColor('#ED4245')
+        .setDescription(
+          recent.map((inc, i) => `**${i + 1}. [${inc.actionType.toUpperCase()}]** <t:${Math.floor(inc.timestamp / 1000)}:R>\n• Thủ phạm: \`${inc.executorTag}\` (\`${inc.executorId}\`)\n• Chi tiết: ${inc.details}\n• Xử lý: **${inc.punishmentTaken}**`).join('\n\n')
+        )
+        .setFooter({ text: 'SentinelBot Anti-Raid Protection' });
+      await interaction.reply({ embeds: [embed] });
+      return;
+    }
+  }
+
+  // --- Slash Command: /lockdown ---
+  if (commandName === 'lockdown') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Administrator** để kích hoạt Khóa khẩn cấp!', ephemeral: true });
+      return;
+    }
+    const mode = interaction.options.getString('mode', true);
+    if (!interaction.guild) return;
+    if (mode === 'on') {
+      await toggleServerLockdown(interaction.guild, true, `Thực hiện bởi ${interaction.user.tag}`);
+      await interaction.reply('🔒 **[PANIC LOCKDOWN ACTIVATED]** ĐÃ KHÓA KHẨN CẤP TOÀN BỘ KÊNH! Quyền chat của @everyone đã bị tắt tạm thời.');
+    } else {
+      await toggleServerLockdown(interaction.guild, false, `Mở khóa bởi ${interaction.user.tag}`);
+      await interaction.reply('🔓 **[PANIC LOCKDOWN DEACTIVATED]** Đã dỡ bỏ khóa khẩn cấp! Máy chủ hoạt động bình thường trở lại.');
+    }
+    return;
+  }
+
+  // --- Slash Command: /antispam ---
+  if (commandName === 'antispam') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Administrator**!', ephemeral: true });
+      return;
+    }
+    const mode = interaction.options.getString('mode', true);
+    if (mode === 'on') {
+      antiSpamEnabled.add(interaction.guildId!);
+      await interaction.reply('🛡️ Đã **BẬT** hệ thống Anti-Spam & Anti-Link.');
+    } else {
+      antiSpamEnabled.delete(interaction.guildId!);
+      await interaction.reply('⚠️ Đã **TẮT** hệ thống Anti-Spam & Anti-Link.');
+    }
+    return;
+  }
+
+  // --- Slash Command: /backup ---
+  if (commandName === 'backup') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Administrator** để sao lưu!', ephemeral: true });
+      return;
+    }
+    const sub = interaction.options.getSubcommand();
+    if (sub === 'data') {
+      const result = backupData();
+      await interaction.reply(result);
+      return;
+    }
+    if (sub === 'server') {
+      await interaction.deferReply();
+      const result = await captureServerBackup(interaction.guild!);
+      await interaction.editReply(result);
+      return;
+    }
+  }
+
+  // --- Slash Command: /scanweb ---
+  if (commandName === 'scanweb') {
+    const url = interaction.options.getString('url', true);
+    await interaction.deferReply();
+    try {
+      const reportEmbed = await performWebScan(url, interaction.user.tag, interaction.guild?.name);
+      await interaction.editReply({ embeds: [reportEmbed] });
+    } catch (err: any) {
+      await interaction.editReply(`❌ Lỗi khi phân tích liên kết: ${err.message || 'Lỗi không xác định'}`);
+    }
+    return;
+  }
+
+  // --- Slash Command: /scanfile ---
+  if (commandName === 'scanfile') {
+    const attachment = interaction.options.getAttachment('file', true);
+    await interaction.deferReply();
+    try {
+      const reportEmbed = await performFileScan(
+        attachment.url,
+        attachment.name,
+        attachment.size,
+        interaction.user.tag,
+        interaction.guild?.name
+      );
+      await interaction.editReply({ embeds: [reportEmbed] });
+    } catch (err: any) {
+      await interaction.editReply(`❌ Lỗi khi phân tích tệp tin: ${err.message || 'Lỗi không xác định'}`);
+    }
+    return;
+  }
+
+  // --- Slash Command: /ship ---
+  if (commandName === 'ship') {
+    const u1 = interaction.options.getUser('user1', true);
+    const u2 = interaction.options.getUser('user2') || interaction.user;
+
+    if (u1.id === u2.id) {
+      await interaction.reply({ content: '😂 Bạn không thể tự ghép đôi với chính mình!', ephemeral: true });
+      return;
+    }
+
+    const { score, progressBar, comment, shipName } = calculateShip(
+      u1.id,
+      u2.id,
+      u1.username,
+      u2.username
+    );
+
+    let color = '#FF69B4';
+    if (score >= 75) color = '#ED4245';
+    else if (score < 40) color = '#747F8D';
+
+    const embed = new EmbedBuilder()
+      .setTitle('💘 TƠ DUYÊN TIỀN ĐỊNH • GHÉP ĐÔI TÌNH YÊU 💘')
+      .setColor(color as any)
+      .setDescription(`Hệ thống thần số học đã tính toán độ tương thích giữa **${u1.username}** và **${u2.username}**!`)
+      .addFields(
+        { name: '💑 Biệt danh cặp đôi', value: `\`${shipName}\``, inline: true },
+        { name: '💖 Tỷ lệ hợp nhau', value: `**${score}%**`, inline: true },
+        { name: '📊 Thước đo tình cảm', value: `${progressBar}`, inline: false },
+        { name: '🔮 Lời sấm truyền', value: `*"${comment}"*`, inline: false }
+      )
+      .setFooter({ text: 'SentinelBot Tình Duyên • Kết quả đổi mới mỗi ngày!' })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed] });
+    return;
+  }
+
+  // --- Slash Command: /gay ---
+  if (commandName === 'gay') {
+    const target = interaction.options.getUser('user') || interaction.user;
+    const { rate, progressBar, title, desc } = calculateGayRate(target.id, target.username);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🌈 MÁY ĐO ĐỘ GAY LỌ • RAINBOW SCANNER 🌈')
+      .setColor('#EB459E')
+      .setDescription(`Máy quét quang phổ đang rà soát năng lượng cầu vồng của **${target.username}**...`)
+      .addFields(
+        { name: '✨ Chỉ số Gay lọ', value: `**${rate}%**`, inline: true },
+        { name: '🎖️ Danh hiệu', value: `\`${title}\``, inline: true },
+        { name: '🌈 Thang đo cầu vồng', value: `${progressBar}`, inline: false },
+        { name: '💬 Đánh giá chuyên gia', value: `*"${desc}"*`, inline: false }
+      )
+      .setFooter({ text: 'SentinelBot Fun • Mang tính chất giải trí mua vui!' })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed] });
+    return;
+  }
+
+  // --- Slash Command: /chat ---
+  if (commandName === 'chat') {
+    const prompt = interaction.options.getString('prompt', true);
+    await interaction.deferReply();
+    const reply = await askGeminiChat(
+      prompt,
+      interaction.user.id,
+      interaction.user.username
+    );
+    if (reply.length <= 1950) {
+      await interaction.editReply(reply);
+    } else {
+      await interaction.editReply(reply.slice(0, 1950));
+      if (reply.length > 1950 && interaction.channel) {
+        await (interaction.channel as any).send(reply.slice(1950, 3900)).catch(() => {});
+      }
+    }
+    return;
+  }
+
+  // --- Slash Command: /stock ---
+  if (commandName === 'stock') {
+    await interaction.deferReply();
+    const stock = await fetchBloxFruitsStock();
+    await interaction.editReply(`🍎 **Blox Fruits Stock hiện tại:**\n${stock}`);
+    return;
+  }
+
+  // --- Slash Command: /setstock ---
+  if (commandName === 'setstock') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Manage Server (Quản lý Server)**!', ephemeral: true });
+      return;
+    }
+    const info = interaction.options.getString('info', true);
+    const cfg = loadMusicConfig();
+    cfg.fruitStock = info;
+    saveMusicConfig(cfg);
+    await interaction.reply(`✅ Đã cập nhật Stock Fruit thành: \`${info}\``);
+    return;
+  }
+
+  // --- Slash Command: /rpc ---
+  if (commandName === 'rpc') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Manage Server**!', ephemeral: true });
+      return;
+    }
+    const sub = interaction.options.getSubcommand();
+    if (sub === 'info') {
+      const cfg = getRpcConfig();
+      const embed = new EmbedBuilder()
+        .setTitle('🎮 SentinelBot • Rich Presence (RPC) Manager')
+        .setColor('#5865F2')
+        .setDescription('Tùy chỉnh hoạt động và trạng thái hiển thị của bot:')
+        .addFields(
+          { name: 'Loại hoạt động', value: `\`${cfg.activityType}\``, inline: true },
+          { name: 'Trạng thái', value: `\`${cfg.status.toUpperCase()}\``, inline: true },
+          { name: 'Tự động luân phiên', value: cfg.autoRotate ? '🟢 BẬT' : '⚪ TẮT', inline: true },
+          { name: 'Nội dung hiển thị', value: `**${cfg.activityName}**\n*${cfg.state || 'Không có chi tiết'}*` }
+        )
+        .setFooter({ text: 'Có thể quản lý trên Web Dashboard' });
+      await interaction.reply({ embeds: [embed] });
+      return;
+    }
+    if (sub === 'status') {
+      const state = interaction.options.getString('state', true) as any;
+      applyRpcToBot(client, { status: state });
+      await interaction.reply(`✅ Đã cập nhật trạng thái hiển thị của bot thành **${state.toUpperCase()}**!`);
+      return;
+    }
+    if (sub === 'rotate') {
+      const enabled = interaction.options.getBoolean('enabled', true);
+      setRpcAutoRotate(client, enabled);
+      await interaction.reply(`🔄 Đã ${enabled ? 'BẬT 🟢' : 'TẮT ⚪'} chế độ tự động luân phiên đổi Rich Presence!`);
+      return;
+    }
+    if (sub === 'set') {
+      const type = interaction.options.getString('type', true);
+      const text = interaction.options.getString('text', true);
+      const streamUrl = interaction.options.getString('stream_url') || 'https://www.twitch.tv/sentinelbot_defense';
+
+      const validTypes: Record<string, BotRpcConfig['activityType']> = {
+        playing: 'Playing',
+        watching: 'Watching',
+        listening: 'Listening',
+        streaming: 'Streaming',
+        competing: 'Competing',
+      };
+      const actType = validTypes[type] || 'Playing';
+      setRpcAutoRotate(client, false);
+      applyRpcToBot(client, {
+        activityType: actType,
+        activityName: text,
+        streamUrl: actType === 'Streaming' ? streamUrl : undefined,
+        state: 'Thiết lập qua Slash Command',
+        autoRotate: false
+      });
+      await interaction.reply(`🎮 Đã đổi Rich Presence thành: **[${actType}] ${text}**!`);
+      return;
+    }
+  }
+
+  // --- Slash Command: /autochat ---
+  if (commandName === 'autochat') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageWebhooks)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Manage Webhooks**!', ephemeral: true });
+      return;
+    }
+    const sub = interaction.options.getSubcommand();
+    if (sub === 'on') {
+      const url = interaction.options.getString('webhook_url');
+      if (url && url.startsWith('https://discord.com/api/webhooks/')) {
+        activeWebhooks.set(interaction.channelId, url);
+        await interaction.reply('✅ Đã kích hoạt auto chat bằng Webhook tại kênh này!');
+      } else {
+        if (!interaction.guild?.members.me?.permissions.has(PermissionsBitField.Flags.ManageWebhooks)) {
+          await interaction.reply({ content: '❌ Bot không có quyền Manage Webhooks để tự tạo!', ephemeral: true });
+          return;
+        }
+        try {
+          const webhook = await (interaction.channel as any).createWebhook({
+            name: 'Sentinel AutoChat',
+            avatar: client.user?.displayAvatarURL(),
+            reason: 'Auto-created by SentinelBot Slash Command'
+          });
+          activeWebhooks.set(interaction.channelId, webhook.url);
+          await interaction.reply('✅ Đã tự tạo Webhook và kích hoạt auto chat!');
+        } catch (err: any) {
+          await interaction.reply({ content: `❌ Không thể tạo webhook: ${err.message}`, ephemeral: true });
+        }
+      }
+      return;
+    }
+    if (sub === 'off') {
+      activeWebhooks.delete(interaction.channelId);
+      await interaction.reply('🗑️ Đã tắt auto chat tại kênh này.');
+      return;
+    }
+    if (sub === 'clear') {
+      if (!interaction.guild?.members.me?.permissions.has(PermissionsBitField.Flags.ManageWebhooks)) {
+        await interaction.reply({ content: '❌ Bot không có quyền Manage Webhooks!', ephemeral: true });
+        return;
+      }
+      try {
+        const webhooks = await (interaction.channel as any).fetchWebhooks();
+        for (const webhook of webhooks.values()) {
+          await webhook.delete('Deleted by Slash Command');
+        }
+        activeWebhooks.delete(interaction.channelId);
+        await interaction.reply(`🗑️ Đã xóa ${webhooks.size} Webhooks trong kênh này và tắt auto chat.`);
+      } catch (err: any) {
+        await interaction.reply({ content: `❌ Lỗi khi xóa Webhook: ${err.message}`, ephemeral: true });
+      }
+      return;
+    }
+  }
+
+  // --- Slash Command: /watch ---
+  if (commandName === 'watch') {
+    if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageMessages)) {
+      await interaction.reply({ content: '❌ Bạn cần quyền **Manage Messages**!', ephemeral: true });
+      return;
+    }
+    const sub = interaction.options.getSubcommand();
+    if (!interaction.guildId) return;
+    if (!autoDeleteMap.has(interaction.guildId)) {
+      autoDeleteMap.set(interaction.guildId, new Set());
+    }
+    const set = autoDeleteMap.get(interaction.guildId)!;
+
+    if (sub === 'add') {
+      const u = interaction.options.getUser('user', true);
+      set.add(u.id);
+      await interaction.reply(`✅ Đã thêm **${u.tag}** vào danh sách auto-delete.`);
+      return;
+    }
+    if (sub === 'remove') {
+      const u = interaction.options.getUser('user', true);
+      set.delete(u.id);
+      await interaction.reply(`✅ Đã gỡ **${u.tag}** khỏi danh sách auto-delete.`);
+      return;
+    }
+    if (sub === 'list') {
+      if (set.size === 0) {
+        await interaction.reply({ content: 'Danh sách auto-delete đang trống.', ephemeral: true });
+        return;
+      }
+      const ids = Array.from(set);
+      await interaction.reply(`📋 Danh sách đang bị watch: ${ids.map(id => `<@${id}>`).join(', ')}`);
+      return;
+    }
   }
 });
 

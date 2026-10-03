@@ -14,6 +14,8 @@
     "@discordjs/voice": "^0.19.2",
     "@distube/ytdl-core": "^4.16.12",
     "@google/genai": "^2.4.0",
+    "@noble/ciphers": "^2.4.0",
+    "@stablelib/xchacha20poly1305": "^2.0.1",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "cors": "^2.8.6",

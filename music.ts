@@ -22,6 +22,10 @@ import {
 } from 'discord.js';
 import play from 'play-dl';
 import ffmpegPath from 'ffmpeg-static';
+import sodium from 'libsodium-wrappers';
+
+// Pre-initialize libsodium WebAssembly for Discord voice encryption
+sodium.ready.catch(() => {});
 
 // Configure FFMPEG path
 if (ffmpegPath) {
@@ -35,7 +39,7 @@ interface MusicConfig {
   fruitStock?: string;
 }
 
-function loadMusicConfig(): MusicConfig {
+export function loadMusicConfig(): MusicConfig {
   try {
     if (fs.existsSync(MUSIC_CONFIG_FILE)) {
       const raw = fs.readFileSync(MUSIC_CONFIG_FILE, 'utf-8');
@@ -47,7 +51,7 @@ function loadMusicConfig(): MusicConfig {
   return {};
 }
 
-function saveMusicConfig(cfg: MusicConfig) {
+export function saveMusicConfig(cfg: MusicConfig) {
   try {
     fs.writeFileSync(MUSIC_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
   } catch (e) {
@@ -148,7 +152,7 @@ initSoundCloud();
 /**
  * Fetches current Blox Fruits stock from Parse.bot
  */
-async function fetchBloxFruitsStock(): Promise<string> {
+export async function fetchBloxFruitsStock(): Promise<string> {
   const apiKey = process.env.PARSE_BOT_API_KEY;
   if (!apiKey) {
     return 'Chưa cấu hình API Key cho Parse.bot.';
@@ -670,25 +674,57 @@ export async function executePlay(
       channelId: voiceChannel.id,
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator as any,
-      selfDeaf: false,
+      selfDeaf: true,
       selfMute: false,
+    });
+
+    connection.on('stateChange', (oldState, newState) => {
+      console.log(`[VoiceConnection ${guild.name}] ${oldState.status} -> ${newState.status}`);
+    });
+
+    connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      try {
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+        ]);
+      } catch {
+        try { connection.destroy(); } catch {}
+      }
     });
   }
 
   // Đợi Voice Connection vào trạng thái READY để đảm bảo bot ĐÃ VÀO PHÒNG THOẠI thành công
-  try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
-    console.log(`[Music] Successfully connected to Voice Channel: "${voiceChannel.name}" in "${guild.name}"`);
-  } catch (voiceConnErr: any) {
-    console.error(`[Music] Failed to enter Ready state for voice channel ${voiceChannel.id}:`, voiceConnErr);
+  if (connection.state.status !== VoiceConnectionStatus.Ready) {
     try {
-      connection.destroy();
-    } catch {}
-    musicQueues.delete(guild.id);
-    return {
-      success: false,
-      message: `❌ Bot không thể kết nối vào phòng thoại **${voiceChannel.name}** (Lỗi kết nối Voice Gateway: ${voiceConnErr?.message || 'Timeout 10s'}).`,
-    };
+      // Cho thời gian chờ tối đa 20s để Discord Voice Gateway hoàn tất bắt tay mã hóa
+      await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+      console.log(`[Music] Successfully connected to Voice Channel: "${voiceChannel.name}" in "${guild.name}"`);
+    } catch (voiceConnErr: any) {
+      console.warn(`[Music] entersState warn for voice channel ${voiceChannel.id}:`, voiceConnErr?.message);
+
+      // Thử cho thêm 5s nếu đang trong quá trình Connecting / Signalling
+      if (
+        connection.state.status === VoiceConnectionStatus.Signalling ||
+        connection.state.status === VoiceConnectionStatus.Connecting
+      ) {
+        try {
+          await entersState(connection, VoiceConnectionStatus.Ready, 5_000);
+        } catch {}
+      }
+
+      if ((connection.state as any).status !== VoiceConnectionStatus.Ready) {
+        console.error(`[Music] Connection failed to enter Ready state (current state: ${connection.state.status})`);
+        try {
+          connection.destroy();
+        } catch {}
+        musicQueues.delete(guild.id);
+        return {
+          success: false,
+          message: `❌ Bot không thể kết nối vào phòng thoại **${voiceChannel.name}** (Trạng thái: ${connection.state.status || 'Chưa hoàn tất'}).\n💡 **Khắc phục:** Hãy kiểm tra xem Bot đã được cấp quyền **Kết nối (Connect)** và **Nói (Speak)** trong phòng thoại đó chưa, sau đó gõ lại lệnh!`,
+        };
+      }
+    }
   }
 
   if (!queue) {
